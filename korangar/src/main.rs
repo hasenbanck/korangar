@@ -25,7 +25,7 @@ use std::net::ToSocketAddrs;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use cgmath::{Vector2, Vector3};
+use cgmath::{Point3, Vector2, Vector3};
 use image::{EncodableLayout, ImageFormat, ImageReader};
 use korangar_audio::AudioEngine;
 #[cfg(feature = "debug")]
@@ -73,7 +73,7 @@ const CLIENT_NAME: &str = "Korangar";
 const ROLLING_CUTTER_ID: SkillId = SkillId(2036);
 // The real limiting factor is WGPUs
 // "Limit::max_sampled_textures_per_shader_stage".
-const MAX_BINDING_TEXTURE_ARRAY_COUNT: usize = 30;
+const MAX_BINDING_TEXTURE_ARRAY_COUNT: usize = 1800;
 
 // Create the `threads` module.
 #[cfg(feature = "debug")]
@@ -178,7 +178,10 @@ fn main() {
     });
 
     time_phase!("create device", {
-        let required_features = Features::PUSH_CONSTANTS | Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING;
+        let required_features = Features::INDIRECT_FIRST_INSTANCE
+            | Features::MULTI_DRAW_INDIRECT
+            | Features::PUSH_CONSTANTS
+            | Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING;
         #[cfg(feature = "debug")]
         let required_features = required_features | Features::POLYGON_MODE_LINE;
 
@@ -245,7 +248,7 @@ fn main() {
         std::fs::create_dir_all("client/themes").unwrap();
         let font_loader = Rc::new(RefCell::new(FontLoader::new(&device, queue.clone(), &game_file_loader)));
 
-        let mut model_loader = ModelLoader::new(device.clone(), queue.clone(), game_file_loader.clone());
+        let mut model_loader = ModelLoader::new(game_file_loader.clone());
         let mut texture_loader = TextureLoader::new(device.clone(), queue.clone(), game_file_loader.clone());
         let mut map_loader = MapLoader::new(device.clone(), queue.clone(), game_file_loader.clone(), audio_engine.clone());
         let mut sprite_loader = SpriteLoader::new(device.clone(), queue.clone(), game_file_loader.clone());
@@ -285,8 +288,8 @@ fn main() {
 
         let mut picker_renderer = PickerRenderer::new(device.clone(), queue.clone(), dimensions);
 
-        let directional_shadow_renderer = DirectionalShadowRenderer::new(device.clone(), queue.clone(), &mut texture_loader);
-        let mut point_shadow_renderer = PointShadowRenderer::new(device.clone(), &mut texture_loader);
+        let mut directional_shadow_renderer = DirectionalShadowRenderer::new(device.clone(), queue.clone(), &mut texture_loader);
+        let mut point_shadow_renderer = PointShadowRenderer::new(device.clone(), queue.clone(), &mut texture_loader);
     });
 
     time_phase!("load settings", {
@@ -355,8 +358,8 @@ fn main() {
         let mut directional_shadow_camera = DirectionalShadowCamera::new();
         let mut point_shadow_camera = PointShadowCamera::new();
 
-        start_camera.set_focus_point(cgmath::Point3::new(600.0, 0.0, 240.0));
-        directional_shadow_camera.set_focus_point(cgmath::Point3::new(600.0, 0.0, 240.0));
+        start_camera.set_focus_point(Point3::new(600.0, 0.0, 240.0));
+        directional_shadow_camera.set_focus_point(Point3::new(600.0, 0.0, 240.0));
     });
 
     time_phase!("initialize networking", {
@@ -400,6 +403,10 @@ fn main() {
         let mut deferred_object_set_buffer = ObjectSetBuffer::default();
         let mut bounding_box_object_set_buffer = ObjectSetBuffer::default();
 
+        let mut deferred_geometry_instructions: Vec<GeometryInstruction> = Vec::default();
+        let mut directional_shadow_geometry_instructions: Vec<GeometryInstruction> = Vec::default();
+        let mut point_shadow_geometry_instructions: Vec<GeometryInstruction> = Vec::default();
+
         let welcome_string = format!(
             "Welcome to ^ffff00★^000000 ^ff8800Korangar^000000 ^ffff00★^000000 version ^ff8800{}^000000!",
             env!("CARGO_PKG_VERSION")
@@ -414,7 +421,7 @@ fn main() {
 
     time_phase!("load default map", {
         let mut map = map_loader
-            .get(DEFAULT_MAP.to_string(), &mut model_loader, &mut texture_loader)
+            .load(DEFAULT_MAP.to_string(), &mut model_loader, &mut texture_loader)
             .expect("failed to load initial map");
 
         map.set_ambient_sound_sources(&audio_engine);
@@ -606,7 +613,7 @@ fn main() {
                             audio_engine.play_background_music_track(None);
 
                             map = map_loader
-                                .get(
+                                .load(
                                     DEFAULT_MAP.to_string(),
                                     &mut model_loader,
                                     &mut texture_loader,
@@ -621,8 +628,8 @@ fn main() {
                             let character_selection_window = CharacterSelectionWindow::new(saved_characters.new_remote(), move_request.new_remote(), saved_slot_count);
                             interface.open_window(&application, &mut focus_state, &character_selection_window);
 
-                            start_camera.set_focus_point(cgmath::Point3::new(600.0, 0.0, 240.0));
-                            directional_shadow_camera.set_focus_point(cgmath::Point3::new(600.0, 0.0, 240.0));
+                            start_camera.set_focus_point(Point3::new(600.0, 0.0, 240.0));
+                            directional_shadow_camera.set_focus_point(Point3::new(600.0, 0.0, 240.0));
 
                         },
                         NetworkEvent::AccountId(..) => {},
@@ -664,7 +671,7 @@ fn main() {
                                 .unwrap();
 
                             map = map_loader
-                                .get(
+                                .load(
                                     map_name,
                                     &mut model_loader,
                                     &mut texture_loader,
@@ -769,7 +776,7 @@ fn main() {
                             entities.truncate(1);
 
                             map = map_loader
-                                .get(
+                                .load(
                                     map_name,
                                     &mut model_loader,
                                     &mut texture_loader,
@@ -908,7 +915,7 @@ fn main() {
                             effect_holder.add_effect(Box::new(EffectWithLight::new(
                                 effect,
                                 frame_timer,
-                                EffectCenter::Entity(entity_id, cgmath::Point3::new(0.0, 0.0, 0.0)),
+                                EffectCenter::Entity(entity_id, Point3::new(0.0, 0.0, 0.0)),
                                 Vector3::new(0.0, 9.0, 0.0),
                                 // FIX: The point light ID needs to be unique.
                                 // The point light manager uses the ID to decide which point light
@@ -1647,14 +1654,7 @@ fn main() {
                         #[cfg(feature = "debug")]
                         let _measurement = threads::Shadow::start_frame();
 
-                        #[cfg_attr(feature = "debug", korangar_debug::debug_condition(render_settings.show_map))]
-                        map.render_ground(
-                            directional_shadow_target,
-                            &mut directional_shadow_render_pass,
-                            &directional_shadow_renderer,
-                            &directional_shadow_camera,
-                            animation_timer,
-                        );
+                        directional_shadow_geometry_instructions.clear();
 
                         let object_set = map.cull_objects_with_frustum(
                             &directional_shadow_camera,
@@ -1664,13 +1664,23 @@ fn main() {
 
                         #[cfg_attr(feature = "debug", korangar_debug::debug_condition(render_settings.show_objects))]
                         map.render_objects(
+                            &mut directional_shadow_geometry_instructions,
+                            &object_set,
+                            client_tick,
+                        );
+
+                        #[cfg_attr(feature = "debug", korangar_debug::debug_condition(render_settings.show_map))]
+                        map.render_ground(
+                            &mut directional_shadow_geometry_instructions,
+                        );
+
+                        map.render_geometry(
                             directional_shadow_target,
                             &mut directional_shadow_render_pass,
-                            &directional_shadow_renderer,
+                            &mut directional_shadow_renderer,
+                            &directional_shadow_geometry_instructions,
                             &directional_shadow_camera,
-                            client_tick,
                             animation_timer,
-                            &object_set,
                         );
 
                         #[cfg_attr(feature = "debug", korangar_debug::debug_condition(render_settings.show_entities))]
@@ -1702,6 +1712,8 @@ fn main() {
                         #[cfg(feature = "debug")]
                         let _measurement = threads::PointShadow::start_frame();
 
+                        // TODO: NHA Why the heck do we stall as often as we do here?
+
                         for (light_index, point_light) in point_light_set.with_shadow_iterator().enumerate() {
                             let Some(point_shadow_target) = point_shadow_target.get_mut(light_index) else {
                                 break;
@@ -1720,6 +1732,8 @@ fn main() {
                             // performance.
 
                             for index in 0..6 {
+                                point_shadow_geometry_instructions.clear();
+
                                 point_shadow_camera.change_direction(index);
                                 point_shadow_camera.generate_view_projection(Vector2::zero());
 
@@ -1737,13 +1751,23 @@ fn main() {
 
                                 #[cfg_attr(feature = "debug", korangar_debug::debug_condition(render_settings.show_objects))]
                                 map.render_objects(
+                                    &mut point_shadow_geometry_instructions,
+                                    &object_set,
+                                    client_tick
+                                );
+
+                                #[cfg_attr(feature = "debug", korangar_debug::debug_condition(render_settings.show_map))]
+                                map.render_ground(
+                                    &mut point_shadow_geometry_instructions
+                                );
+
+                                map.render_geometry(
                                     point_shadow_target,
                                     &mut point_shadow_render_pass,
-                                    &point_shadow_renderer,
+                                    &mut point_shadow_renderer,
+                                    &point_shadow_geometry_instructions,
                                     &point_shadow_camera,
-                                    client_tick,
                                     animation_timer,
-                                    &object_set,
                                 );
 
                                 if let Some(PickerTarget::Tile { x, y }) = mouse_target
@@ -1760,14 +1784,7 @@ fn main() {
                                     );
                                 }
 
-                                #[cfg_attr(feature = "debug", korangar_debug::debug_condition(render_settings.show_map))]
-                                map.render_ground(
-                                    point_shadow_target,
-                                    &mut point_shadow_render_pass,
-                                    &point_shadow_renderer,
-                                    &point_shadow_camera,
-                                    animation_timer,
-                                );
+                                drop_render_pass(point_shadow_render_pass)
                             }
                         }
                     });
@@ -1776,8 +1793,7 @@ fn main() {
                         #[cfg(feature = "debug")]
                         let _measurement = threads::Deferred::start_frame();
 
-                        #[cfg_attr(feature = "debug", korangar_debug::debug_condition(render_settings.show_map))]
-                        map.render_ground(deferred_target, &mut geometry_render_pass, &deferred_renderer, current_camera, animation_timer);
+                        deferred_geometry_instructions.clear();
 
                         #[cfg(feature = "debug")]
                         if render_settings.show_map_tiles {
@@ -1792,13 +1808,23 @@ fn main() {
 
                         #[cfg_attr(feature = "debug", korangar_debug::debug_condition(render_settings.show_objects))]
                         map.render_objects(
+                            &mut deferred_geometry_instructions,
+                            &object_set,
+                            client_tick
+                        );
+
+                        #[cfg_attr(feature = "debug", korangar_debug::debug_condition(render_settings.show_map))]
+                        map.render_ground(
+                            &mut deferred_geometry_instructions,
+                        );
+
+                        map.render_geometry(
                             deferred_target,
                             &mut geometry_render_pass,
-                            &deferred_renderer,
+                            &mut deferred_renderer,
+                            &deferred_geometry_instructions,
                             current_camera,
-                            client_tick,
                             animation_timer,
-                            &object_set,
                         );
 
                         #[cfg_attr(feature = "debug", korangar_debug::debug_condition(render_settings.show_entities))]
@@ -2008,12 +2034,13 @@ fn main() {
                 #[cfg(feature = "debug")]
                 let finalize_frame_measurement = Profiler::start_measurement("finishing command encoders");
 
-                drop(picker_render_pass);
-                drop(picker_compute_pass);
-                drop(interface_render_pass);
-                drop(directional_shadow_render_pass);
-                drop(geometry_render_pass);
-                drop(screen_render_pass);
+                drop_render_pass(picker_render_pass);
+                drop_render_pass(picker_compute_pass);
+                drop_render_pass(interface_render_pass);
+                drop_render_pass(directional_shadow_render_pass);
+                drop_render_pass(geometry_render_pass);
+                drop_render_pass(screen_render_pass);
+
                 let (picker_render_command_buffer, picker_compute_command_buffer) = picker_target.finish(picker_render_command_encoder, picker_compute_command_encoder);
                 let interface_command_buffer = interface_target.finish(interface_command_encoder);
                 let directional_shadow_command_buffer = directional_shadow_target.finish(directional_shadow_command_encoder);
@@ -2057,4 +2084,9 @@ fn main() {
             _ignored => {},
         }
     }).unwrap();
+}
+
+#[cfg_attr(feature = "debug", korangar_debug::profile)]
+fn drop_render_pass<T>(render_pass: T) {
+    drop(render_pass);
 }
