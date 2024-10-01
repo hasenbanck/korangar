@@ -6,5 +6,6 @@ pub mod collision;
 pub mod container;
 mod loader;
 pub mod math;
+pub mod thread;
 
 pub use loader::{FileLoader, FileNotFoundError};

@@ -43,12 +43,12 @@ use korangar_networking::{
     DisconnectReason, HotkeyState, LoginServerLoginData, MessageColor, NetworkEvent, NetworkingSystem, SellItem, ShopItem,
 };
 use korangar_util::collision::Sphere;
+use korangar_util::thread::ScopedThreadPool;
 use num::Zero;
 use ragnarok_packets::{
     BuyShopItemsResult, CharacterId, CharacterInformation, CharacterServerInformation, Friend, HotbarSlot, SellItemsResult, SkillId,
     SkillType, TilePosition, UnitId, WorldPosition,
 };
-use rayon::in_place_scope;
 use wgpu::{CommandEncoderDescriptor, Features, Instance, InstanceFlags, Limits, Maintain, MemoryHints, TextureViewDescriptor};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
@@ -112,8 +112,12 @@ fn main() {
         }
     }
 
-    time_phase!("create global thread pool", {
-        rayon::ThreadPoolBuilder::new().num_threads(4).build_global().unwrap();
+    time_phase!("create thread pool for async tasks", {
+        rayon::ThreadPoolBuilder::new().num_threads(2).build_global().unwrap();
+    });
+
+    time_phase!("create scoped thread pool", {
+        let mut thread_pool = ScopedThreadPool::<4, 256>::new();
     });
 
     time_phase!("create window", {
@@ -1624,8 +1628,8 @@ fn main() {
                     point_light_manager.create_point_light_set(NUMBER_OF_POINT_LIGHTS_WITH_SHADOWS)
                 };
 
-                in_place_scope(|scope| {
-                    scope.spawn(|_| {
+                thread_pool.scope(|scope| {
+                    scope.spawn::<0, _>(|| {
                         #[cfg(feature = "debug")]
                         let _measurement = threads::Picker::start_frame();
 
@@ -1650,7 +1654,7 @@ fn main() {
                         picker_renderer.dispatch_selector(picker_target, &mut picker_compute_pass, window_size, mouse_position);
                     });
 
-                    scope.spawn(|_| {
+                    scope.spawn::<1, _>(|| {
                         #[cfg(feature = "debug")]
                         let _measurement = threads::Shadow::start_frame();
 
@@ -1708,7 +1712,7 @@ fn main() {
                         }
                     });
 
-                    scope.spawn(|_| {
+                    scope.spawn::<2, _>(|| {
                         #[cfg(feature = "debug")]
                         let _measurement = threads::PointShadow::start_frame();
 
@@ -1789,7 +1793,7 @@ fn main() {
                         }
                     });
 
-                    scope.spawn(|_| {
+                    scope.spawn::<3, _>(|| {
                         #[cfg(feature = "debug")]
                         let _measurement = threads::Deferred::start_frame();
 
