@@ -33,7 +33,13 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
 
 @fragment
 fn fs_main(@location(0) texture_coordinates: vec2<f32>) -> @location(0) vec4<f32> {
-    return textureSample(sprite_texture, sprite_sampler, texture_coordinates) * vec4<f32>(constants.color0, constants.color1);
+    let color = textureSample(sprite_texture, sprite_sampler, texture_coordinates) * vec4<f32>(constants.color0, constants.color1);
+
+    if (color.a == 0.0 || (color.r == 0.0 && color.g == 0.0 && color.b == 0.0)) {
+        discard;
+    }
+
+    return color;
 }
 
 fn position_data(vertex_index: u32) -> vec4<f32> {

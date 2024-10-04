@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use wgpu::{
     include_wgsl, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource,
-    BindingType, ColorTargetState, ColorWrites, Device, FragmentState, PipelineCompilationOptions, PipelineLayoutDescriptor, RenderPass,
-    RenderPipeline, RenderPipelineDescriptor, ShaderModule, ShaderModuleDescriptor, ShaderStages, TextureFormat, TextureSampleType,
-    TextureViewDimension, VertexState,
+    BindingType, BlendState, ColorTargetState, ColorWrites, Device, FragmentState, PipelineCompilationOptions, PipelineLayoutDescriptor,
+    RenderPass, RenderPipeline, RenderPipelineDescriptor, ShaderModule, ShaderModuleDescriptor, ShaderStages, TextureFormat,
+    TextureSampleType, TextureViewDimension, VertexState,
 };
 
-use super::{DeferredRenderer, DeferredSubRenderer, Renderer, Texture, ALPHA_BLEND};
+use super::{DeferredRenderer, DeferredSubRenderer, Renderer, Texture};
 
 const SHADER: ShaderModuleDescriptor = include_wgsl!("overlay.wgsl");
 
@@ -80,7 +80,7 @@ impl OverlayRenderer {
                 compilation_options: PipelineCompilationOptions::default(),
                 targets: &[Some(ColorTargetState {
                     format: surface_format,
-                    blend: Some(ALPHA_BLEND),
+                    blend: Some(BlendState::ALPHA_BLENDING),
                     write_mask: ColorWrites::default(),
                 })],
             }),

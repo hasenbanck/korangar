@@ -5,7 +5,7 @@ use std::sync::Arc;
 use bytemuck::{cast_slice, Pod, Zeroable};
 use wgpu::{
     include_wgsl, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource,
-    BindingType, ColorTargetState, ColorWrites, Device, FragmentState, MultisampleState, PipelineCompilationOptions,
+    BindingType, BlendState, ColorTargetState, ColorWrites, Device, FragmentState, MultisampleState, PipelineCompilationOptions,
     PipelineLayoutDescriptor, PushConstantRange, RenderPass, RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
     ShaderModule, ShaderModuleDescriptor, ShaderStages, TextureFormat, TextureSampleType, TextureViewDimension, VertexState,
 };
@@ -14,7 +14,7 @@ use super::{InterfaceRenderer, InterfaceSubRenderer};
 use crate::graphics::renderers::sampler::{create_new_sampler, SamplerType};
 use crate::interface::layout::{ScreenClip, ScreenPosition, ScreenSize};
 use crate::loaders::{FontLoader, FontSize};
-use crate::{Color, Renderer, INTERFACE_ATTACHMENT_BLEND};
+use crate::{Color, Renderer};
 
 const SHADER: ShaderModuleDescriptor = include_wgsl!("text.wgsl");
 
@@ -110,7 +110,7 @@ impl TextRenderer {
                 compilation_options: PipelineCompilationOptions::default(),
                 targets: &[Some(ColorTargetState {
                     format: output_texture_format,
-                    blend: Some(INTERFACE_ATTACHMENT_BLEND),
+                    blend: Some(BlendState::ALPHA_BLENDING),
                     write_mask: ColorWrites::default(),
                 })],
             }),

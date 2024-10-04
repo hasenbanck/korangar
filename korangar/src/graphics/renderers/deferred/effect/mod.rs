@@ -4,14 +4,15 @@ use bytemuck::{cast_slice, Pod, Zeroable};
 use cgmath::{ElementWise, Matrix2, Vector2};
 use wgpu::{
     include_wgsl, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource,
-    BindingType, ColorTargetState, ColorWrites, Device, FragmentState, PipelineCompilationOptions, PipelineLayoutDescriptor,
-    PushConstantRange, RenderPass, RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType, ShaderModule,
-    ShaderModuleDescriptor, ShaderStages, TextureFormat, TextureSampleType, TextureViewDimension, VertexState,
+    BindingType, BlendComponent, BlendFactor, BlendOperation, BlendState, ColorTargetState, ColorWrites, Device, FragmentState,
+    PipelineCompilationOptions, PipelineLayoutDescriptor, PushConstantRange, RenderPass, RenderPipeline, RenderPipelineDescriptor, Sampler,
+    SamplerBindingType, ShaderModule, ShaderModuleDescriptor, ShaderStages, TextureFormat, TextureSampleType, TextureViewDimension,
+    VertexState,
 };
 
 use super::{DeferredRenderer, DeferredSubRenderer};
 use crate::graphics::renderers::sampler::{create_new_sampler, SamplerType};
-use crate::graphics::{Color, Renderer, Texture, EFFECT_ATTACHMENT_BLEND};
+use crate::graphics::{Color, Renderer, Texture};
 use crate::interface::layout::ScreenSize;
 
 const SHADER: ShaderModuleDescriptor = include_wgsl!("effect.wgsl");
@@ -117,7 +118,19 @@ impl EffectRenderer {
                 compilation_options: PipelineCompilationOptions::default(),
                 targets: &[Some(ColorTargetState {
                     format: surface_format,
-                    blend: Some(EFFECT_ATTACHMENT_BLEND),
+                    // TODO: NHA This is for the blend mode 5i32 / 7i32.
+                    blend: Some(BlendState {
+                        color: BlendComponent {
+                            src_factor: BlendFactor::SrcAlpha,
+                            dst_factor: BlendFactor::DstAlpha,
+                            operation: BlendOperation::Add,
+                        },
+                        alpha: BlendComponent {
+                            src_factor: BlendFactor::SrcAlpha,
+                            dst_factor: BlendFactor::DstAlpha,
+                            operation: BlendOperation::Add,
+                        },
+                    }),
                     write_mask: ColorWrites::default(),
                 })],
             }),

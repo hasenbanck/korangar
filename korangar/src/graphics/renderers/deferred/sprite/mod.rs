@@ -4,12 +4,12 @@ use bytemuck::{cast_slice, Pod, Zeroable};
 use cgmath::Vector2;
 use wgpu::{
     include_wgsl, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource,
-    BindingType, ColorTargetState, ColorWrites, Device, FragmentState, PipelineCompilationOptions, PipelineLayoutDescriptor,
+    BindingType, BlendState, ColorTargetState, ColorWrites, Device, FragmentState, PipelineCompilationOptions, PipelineLayoutDescriptor,
     PushConstantRange, RenderPass, RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType, ShaderModule,
     ShaderModuleDescriptor, ShaderStages, TextureFormat, TextureSampleType, TextureViewDimension, VertexState,
 };
 
-use super::{Color, DeferredRenderer, DeferredSubRenderer, Renderer, Texture, ALPHA_BLEND};
+use super::{Color, DeferredRenderer, DeferredSubRenderer, Renderer, Texture};
 use crate::graphics::renderers::sampler::{create_new_sampler, SamplerType};
 use crate::interface::layout::{ScreenPosition, ScreenSize};
 #[cfg(feature = "debug")]
@@ -153,7 +153,7 @@ impl SpriteRenderer {
                 compilation_options: PipelineCompilationOptions::default(),
                 targets: &[Some(ColorTargetState {
                     format: surface_format,
-                    blend: Some(ALPHA_BLEND),
+                    blend: Some(BlendState::ALPHA_BLENDING),
                     write_mask: ColorWrites::default(),
                 })],
             }),

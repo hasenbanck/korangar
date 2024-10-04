@@ -2,14 +2,14 @@ use std::sync::Arc;
 
 use bytemuck::{cast_slice, Pod, Zeroable};
 use wgpu::{
-    include_wgsl, ColorTargetState, ColorWrites, Device, FragmentState, MultisampleState, PipelineCompilationOptions,
+    include_wgsl, BlendState, ColorTargetState, ColorWrites, Device, FragmentState, MultisampleState, PipelineCompilationOptions,
     PipelineLayoutDescriptor, PushConstantRange, RenderPass, RenderPipeline, RenderPipelineDescriptor, ShaderModule,
     ShaderModuleDescriptor, ShaderStages, TextureFormat, VertexState,
 };
 
 use super::{InterfaceRenderer, InterfaceSubRenderer};
 use crate::interface::layout::{CornerRadius, ScreenClip, ScreenPosition, ScreenSize};
-use crate::{Color, Renderer, INTERFACE_ATTACHMENT_BLEND};
+use crate::{Color, Renderer};
 
 const SHADER: ShaderModuleDescriptor = include_wgsl!("rectangle.wgsl");
 
@@ -67,7 +67,7 @@ impl RectangleRenderer {
                 compilation_options: PipelineCompilationOptions::default(),
                 targets: &[Some(ColorTargetState {
                     format: output_texture_format,
-                    blend: Some(INTERFACE_ATTACHMENT_BLEND),
+                    blend: Some(BlendState::ALPHA_BLENDING),
                     write_mask: ColorWrites::default(),
                 })],
             }),
