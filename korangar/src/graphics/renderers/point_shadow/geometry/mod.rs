@@ -10,7 +10,7 @@ use wgpu::{
 };
 
 use crate::graphics::renderers::point_shadow::PointShadowSubRenderer;
-use crate::graphics::renderers::sampler::{create_new_sampler, SamplerType};
+use crate::graphics::sampler::{create_new_sampler, SamplerType};
 use crate::graphics::*;
 
 const SHADER: ShaderModuleDescriptor = include_wgsl!("geometry.wgsl");

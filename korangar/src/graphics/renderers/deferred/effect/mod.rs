@@ -10,7 +10,7 @@ use wgpu::{
 };
 
 use super::{DeferredRenderer, DeferredSubRenderer};
-use crate::graphics::renderers::sampler::{create_new_sampler, SamplerType};
+use crate::graphics::sampler::{create_new_sampler, SamplerType};
 use crate::graphics::{Camera, Color, Renderer, Texture, EFFECT_ATTACHMENT_BLEND};
 use crate::interface::layout::ScreenSize;
 

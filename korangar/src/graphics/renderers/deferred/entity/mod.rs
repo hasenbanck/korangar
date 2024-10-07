@@ -13,7 +13,7 @@ use wgpu::{
 
 use super::DeferredSubRenderer;
 use crate::graphics::cameras::NEAR_PLANE;
-use crate::graphics::renderers::sampler::{create_new_sampler, SamplerType};
+use crate::graphics::sampler::{create_new_sampler, SamplerType};
 use crate::graphics::{Buffer, Camera, DeferredRenderer, Renderer, Texture};
 
 const SHADER: ShaderModuleDescriptor = include_wgsl!("entity.wgsl");

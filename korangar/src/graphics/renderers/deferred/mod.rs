@@ -31,7 +31,6 @@ use korangar_util::collision::AABB;
 #[cfg(feature = "debug")]
 use ragnarok_formats::transform::Transform;
 use ragnarok_packets::EntityId;
-use renderers::texture::CubeTexture;
 use wgpu::{Device, Queue, RenderPass, TextureFormat};
 
 use self::ambient::AmbientLightRenderer;
@@ -51,6 +50,7 @@ use self::rectangle::RectangleRenderer;
 use self::sprite::SpriteRenderer;
 use self::water::WaterRenderer;
 use self::water_light::WaterLightRenderer;
+use crate::graphics::texture::CubeTexture;
 use crate::graphics::{
     Buffer, EntityRenderer as EntityRendererTrait, GeometryRenderer as GeometryRendererTrait, IndicatorRenderer as IndicatorRendererTrait,
     SpriteRenderer as SpriteRendererTrait, *,

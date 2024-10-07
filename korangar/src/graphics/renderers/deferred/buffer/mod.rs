@@ -10,9 +10,9 @@ use wgpu::{
     ShaderModuleDescriptor, ShaderStages, TextureFormat, TextureSampleType, TextureViewDimension, VertexState,
 };
 
-use super::renderers::texture::CubeTexture;
 use super::{DeferredRenderer, DeferredSubRenderer, RenderSettings, Renderer, Texture};
-use crate::graphics::renderers::sampler::{create_new_sampler, SamplerType};
+use crate::graphics::sampler::{create_new_sampler, SamplerType};
+use crate::graphics::texture::CubeTexture;
 
 const SHADER: ShaderModuleDescriptor = include_wgsl!("buffer.wgsl");
 

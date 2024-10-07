@@ -10,7 +10,7 @@ use wgpu::{
 };
 
 use super::{Color, DeferredRenderer, DeferredSubRenderer, Renderer, Texture, ALPHA_BLEND};
-use crate::graphics::renderers::sampler::{create_new_sampler, SamplerType};
+use crate::graphics::sampler::{create_new_sampler, SamplerType};
 use crate::interface::layout::{ScreenPosition, ScreenSize};
 #[cfg(feature = "debug")]
 use crate::loaders::TextureLoader;

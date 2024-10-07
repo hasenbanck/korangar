@@ -1,15 +1,8 @@
-mod attachment;
-mod buffer;
 mod deferred;
 mod directional_shadow;
 mod interface;
 mod picker;
 mod point_shadow;
-mod sampler;
-#[cfg(feature = "debug")]
-mod settings;
-mod surface;
-mod texture;
 
 use std::marker::PhantomData;
 use std::sync::atomic::AtomicU64;
@@ -27,8 +20,6 @@ use wgpu::{
     TextureUsages, TextureView,
 };
 
-use self::attachment::{AttachmentImageType, AttachmentTextureFactory};
-pub use self::buffer::Buffer;
 pub use self::deferred::DeferredRenderer;
 use self::deferred::DeferredSubRenderer;
 pub use self::directional_shadow::{DirectionalShadowRenderer, ShadowDetail};
@@ -36,11 +27,10 @@ pub use self::interface::InterfaceRenderer;
 use self::picker::PickerSubRenderer;
 pub use self::picker::{PickerRenderer, PickerTarget};
 pub use self::point_shadow::PointShadowRenderer;
-#[cfg(feature = "debug")]
-pub use self::settings::RenderSettings;
-pub use self::surface::{PresentModeInfo, Surface};
-pub use self::texture::{CubeTexture, Texture, TextureGroup};
-use super::{Color, ModelVertex};
+use super::{Color, ModelVertex, TextureFactory, TextureType};
+pub use crate::graphics::buffer::Buffer;
+pub use crate::graphics::surface::{PresentModeInfo, Surface};
+pub use crate::graphics::texture::{CubeTexture, Texture, TextureGroup};
 use crate::graphics::Camera;
 use crate::interface::layout::{ScreenClip, ScreenPosition, ScreenSize};
 #[cfg(feature = "debug")]
@@ -201,12 +191,12 @@ pub struct DeferredRenderTarget {
 
 impl DeferredRenderTarget {
     pub fn new(device: &Device, dimensions: ScreenSize) -> Self {
-        let image_factory = AttachmentTextureFactory::new("deferred render", device, dimensions, 4);
+        let factory = TextureFactory::new(device, dimensions, 4);
 
-        let diffuse_buffer = image_factory.new_texture("diffuse", Self::output_diffuse_format(), AttachmentImageType::InputColor);
-        let normal_buffer = image_factory.new_texture("normal", Self::output_normal_format(), AttachmentImageType::InputColor);
-        let water_buffer = image_factory.new_texture("water", Self::output_water_format(), AttachmentImageType::InputColor);
-        let depth_buffer = image_factory.new_texture("depth", Self::output_depth_format(), AttachmentImageType::InputDepth);
+        let diffuse_buffer = factory.new_texture("diffuse", Self::output_diffuse_format(), TextureType::ColorAttachment);
+        let normal_buffer = factory.new_texture("normal", Self::output_normal_format(), TextureType::ColorAttachment);
+        let water_buffer = factory.new_texture("water", Self::output_water_format(), TextureType::ColorAttachment);
+        let depth_buffer = factory.new_texture("depth", Self::output_depth_format(), TextureType::DepthAttachment);
 
         let bound_sub_renderer = None;
 
@@ -338,10 +328,10 @@ pub struct PickerRenderTarget {
 
 impl PickerRenderTarget {
     pub fn new(device: &Device, dimensions: ScreenSize) -> Self {
-        let texture_factory = AttachmentTextureFactory::new("picker render", device, dimensions, 1);
+        let texture_factory = TextureFactory::new(device, dimensions, 1);
 
-        let texture = texture_factory.new_texture("color", Self::output_color_format(), AttachmentImageType::CopyColor);
-        let depth_texture = texture_factory.new_texture("depth", Self::depth_texture_format(), AttachmentImageType::Depth);
+        let texture = texture_factory.new_texture("color", Self::output_color_format(), TextureType::ColorAttachment);
+        let depth_texture = texture_factory.new_texture("depth", Self::depth_texture_format(), TextureType::Depth);
 
         let buffer = Buffer::with_capacity(
             device,

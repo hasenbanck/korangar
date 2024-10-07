@@ -10,7 +10,7 @@ use wgpu::{
 };
 
 use super::{Camera, Color, DeferredRenderer, DeferredSubRenderer, Renderer, Texture, LIGHT_ATTACHMENT_BLEND};
-use crate::graphics::renderers::sampler::{create_new_sampler, SamplerType};
+use crate::graphics::sampler::{create_new_sampler, SamplerType};
 use crate::Buffer;
 
 const SHADER: ShaderModuleDescriptor = include_wgsl!("directional.wgsl");

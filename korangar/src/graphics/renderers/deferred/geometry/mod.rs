@@ -12,7 +12,7 @@ use wgpu::{
 };
 
 use crate::graphics::renderers::deferred::DeferredSubRenderer;
-use crate::graphics::renderers::sampler::{create_new_sampler, SamplerType};
+use crate::graphics::sampler::{create_new_sampler, SamplerType};
 use crate::graphics::{Buffer, Camera, DeferredRenderer, ModelVertex, Renderer, TextureGroup};
 
 const SHADER: ShaderModuleDescriptor = include_wgsl!("geometry.wgsl");

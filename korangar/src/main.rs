@@ -10,6 +10,19 @@
 #![feature(unsized_const_params)]
 #![feature(variant_count)]
 
+// Helper macro to time and print the startup time of Korangar
+macro_rules! time_phase {
+    ($message:expr, { $($statements:tt)* }) => {
+        #[cfg(feature = "debug")]
+        let _statement_timer = korangar_debug::logging::Timer::new($message);
+
+        $($statements)*
+
+        #[cfg(feature = "debug")]
+        _statement_timer.stop();
+    }
+}
+
 mod graphics;
 mod input;
 #[macro_use]
@@ -105,19 +118,6 @@ korangar_debug::create_profiler_threads!(threads, {
     PointShadow,
     Deferred,
 });
-
-// Helper macro to time and print the startup time of Korangar
-macro_rules! time_phase {
-    ($message:expr, { $($statements:tt)* }) => {
-        #[cfg(feature = "debug")]
-        let _statement_timer = korangar_debug::logging::Timer::new($message);
-
-        $($statements)*
-
-        #[cfg(feature = "debug")]
-        _statement_timer.stop();
-    }
-}
 
 fn main() {
     // We start a frame so that functions trying to start a measurement don't panic.

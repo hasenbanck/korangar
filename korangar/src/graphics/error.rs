@@ -9,4 +9,7 @@ pub fn error_handler(error: Error) {
     };
 
     print_debug!("wgpu [{}] [{}]: {}", message_type.yellow(), "error".red(), message);
+
+    // TODO: NHA Remove me.
+    panic!("TODO REMOVE ME");
 }

@@ -2,8 +2,6 @@ use std::sync::Arc;
 
 use bytemuck::{cast_slice, Pod, Zeroable};
 use cgmath::Point3;
-use renderers::sampler::{create_new_sampler, SamplerType};
-use renderers::texture::CubeTexture;
 use wgpu::{
     include_wgsl, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource,
     BindingType, BufferBindingType, BufferUsages, ColorTargetState, ColorWrites, Device, FragmentState, PipelineCompilationOptions,
@@ -12,6 +10,8 @@ use wgpu::{
 };
 
 use super::DeferredSubRenderer;
+use crate::graphics::sampler::{create_new_sampler, SamplerType};
+use crate::graphics::texture::CubeTexture;
 use crate::graphics::*;
 use crate::point_light_extent;
 

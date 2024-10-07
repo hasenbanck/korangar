@@ -2,14 +2,16 @@ use std::fmt::{Debug, Formatter};
 use std::num::NonZeroU32;
 use std::sync::{Arc, OnceLock};
 
+use derive_new::new;
 use wgpu::util::{DeviceExt, TextureDataOrder};
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource,
-    BindingType, Device, Extent3d, Features, Queue, ShaderStages, TextureDescriptor, TextureSampleType, TextureView, TextureViewDescriptor,
-    TextureViewDimension,
+    BindingType, Device, Extent3d, Features, Queue, ShaderStages, TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType,
+    TextureUsages, TextureView, TextureViewDescriptor, TextureViewDimension,
 };
 
 use crate::graphics::features_supported;
+use crate::interface::layout::ScreenSize;
 use crate::MAX_BINDING_TEXTURE_ARRAY_COUNT;
 
 pub struct Texture {
@@ -60,6 +62,10 @@ impl Texture {
 
     pub fn get_extent(&self) -> Extent3d {
         self.texture.size()
+    }
+
+    pub fn get_format(&self) -> TextureFormat {
+        self.texture.format()
     }
 
     pub fn get_texture(&self) -> &wgpu::Texture {
@@ -173,8 +179,8 @@ impl CubeTexture {
         let texture = device.create_texture(descriptor);
         let texture_array_view = texture.create_view(&TextureViewDescriptor {
             label: descriptor.label,
-            format: Some(wgpu::TextureFormat::Depth32Float),
-            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            format: Some(descriptor.format),
+            dimension: Some(TextureViewDimension::D2Array),
             aspect: wgpu::TextureAspect::All,
             base_mip_level: 0,
             mip_level_count: None,
@@ -184,8 +190,8 @@ impl CubeTexture {
 
         let cube_view = texture.create_view(&TextureViewDescriptor {
             label: descriptor.label,
-            format: Some(wgpu::TextureFormat::Depth32Float),
-            dimension: Some(wgpu::TextureViewDimension::Cube),
+            format: Some(descriptor.format),
+            dimension: Some(TextureViewDimension::Cube),
             aspect: wgpu::TextureAspect::All,
             base_mip_level: 0,
             mip_level_count: None,
@@ -195,9 +201,9 @@ impl CubeTexture {
 
         fn create_face_view(texture: &wgpu::Texture, index: u32) -> TextureView {
             texture.create_view(&TextureViewDescriptor {
-                label: Some("cube map single view"),
-                format: Some(wgpu::TextureFormat::Depth32Float),
-                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                label: Some("cube map face view"),
+                format: Some(TextureFormat::Depth32Float),
+                dimension: Some(TextureViewDimension::D2Array),
                 aspect: wgpu::TextureAspect::All,
                 base_mip_level: 0,
                 mip_level_count: None,
@@ -216,7 +222,7 @@ impl CubeTexture {
         ];
 
         let bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            label: Some("cube texture"),
+            label: Some("cube map texture"),
             entries: &[BindGroupLayoutEntry {
                 binding: 0,
                 visibility: ShaderStages::FRAGMENT,
@@ -250,6 +256,10 @@ impl CubeTexture {
         self.texture.size()
     }
 
+    pub fn get_texture_format(&self) -> TextureFormat {
+        self.texture.format()
+    }
+
     pub fn get_texture_array_view(&self) -> &TextureView {
         &self.texture_array_view
     }
@@ -260,5 +270,64 @@ impl CubeTexture {
 
     pub fn get_bind_group(&self) -> &BindGroup {
         &self.bind_group
+    }
+}
+
+pub(crate) enum TextureType {
+    ColorAttachment,
+    DepthAttachment,
+    Depth,
+}
+
+impl From<TextureType> for TextureUsages {
+    fn from(value: TextureType) -> Self {
+        match value {
+            TextureType::ColorAttachment => TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
+            TextureType::DepthAttachment => TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
+            TextureType::Depth => TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
+        }
+    }
+}
+
+#[derive(new)]
+pub(crate) struct TextureFactory<'a> {
+    device: &'a Device,
+    dimensions: ScreenSize,
+    sample_count: u32,
+}
+
+impl<'a> TextureFactory<'a> {
+    pub(crate) fn new_texture(&self, texture_name: &str, format: TextureFormat, attachment_image_type: TextureType) -> Texture {
+        Texture::new(self.device, &TextureDescriptor {
+            label: Some(texture_name),
+            size: Extent3d {
+                width: self.dimensions.width as u32,
+                height: self.dimensions.height as u32,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: self.sample_count,
+            dimension: TextureDimension::D2,
+            format,
+            usage: attachment_image_type.into(),
+            view_formats: &[],
+        })
+    }
+
+    pub(crate) fn new_cube_texture(&self, texture_name: &str, format: TextureFormat, attachment_image_type: TextureType) -> CubeTexture {
+        CubeTexture::new(self.device, &TextureDescriptor {
+            label: Some(texture_name),
+            size: Extent3d {
+                width: self.dimensions.width as u32,
+                height: self.dimensions.height as u32,
+                depth_or_array_layers: 6,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format,
+            usage: attachment_image_type.into(),
+            view_formats: &[],
+        })
     }
 }

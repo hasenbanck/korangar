@@ -1,12 +1,12 @@
 use wgpu::{Device, FilterMode, Sampler, SamplerDescriptor};
 
-pub(super) enum SamplerType {
+pub(crate) enum SamplerType {
     Linear,
     LinearAnisotropic(u16),
     Nearest,
 }
 
-pub(super) fn create_new_sampler(device: &Device, label: &str, sampler_type: SamplerType) -> Sampler {
+pub(crate) fn create_new_sampler(device: &Device, label: &str, sampler_type: SamplerType) -> Sampler {
     match sampler_type {
         SamplerType::Linear => device.create_sampler(&SamplerDescriptor {
             label: Some(label),

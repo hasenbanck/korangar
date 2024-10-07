@@ -12,7 +12,7 @@ use wgpu::{
 };
 
 use super::{Buffer, Camera, DirectionalShadowRenderer, DirectionalShadowSubRenderer, Renderer, Texture, NEAR_PLANE};
-use crate::graphics::renderers::sampler::{create_new_sampler, SamplerType};
+use crate::graphics::sampler::{create_new_sampler, SamplerType};
 
 const SHADER: ShaderModuleDescriptor = include_wgsl!("entity.wgsl");
 

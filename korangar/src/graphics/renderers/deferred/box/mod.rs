@@ -11,7 +11,8 @@ use wgpu::{
     RenderPipeline, RenderPipelineDescriptor, ShaderModule, ShaderModuleDescriptor, ShaderStages, TextureFormat, VertexState,
 };
 
-use super::{Camera, Color, DeferredRenderer, DeferredSubRenderer, Renderer, WaterVertex};
+use super::{Camera, Color, DeferredRenderer, DeferredSubRenderer, Renderer};
+use crate::graphics::WaterVertex;
 use crate::world::Model;
 use crate::Buffer;
 

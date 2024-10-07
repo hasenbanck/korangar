@@ -9,7 +9,7 @@ use wgpu::{
 };
 
 use super::{InterfaceRenderer, InterfaceSubRenderer};
-use crate::graphics::renderers::sampler::{create_new_sampler, SamplerType};
+use crate::graphics::sampler::{create_new_sampler, SamplerType};
 use crate::interface::layout::{ScreenClip, ScreenPosition, ScreenSize};
 use crate::{Color, Renderer, Texture, INTERFACE_ATTACHMENT_BLEND};
 
