@@ -336,7 +336,7 @@ impl GraphicsEngine {
     }
 
     pub fn render_next_frame(&mut self, frame: SurfaceTexture, instruction: RenderInstruction) {
-        let shadow_caster_count = instruction.uniforms.point_shadow_caster.len();
+        let shadow_caster_count = instruction.point_shadow_caster.len();
         assert!(shadow_caster_count < NUMBER_OF_POINT_LIGHTS_WITH_SHADOWS);
 
         // Reclaim all staging buffers that the GPU has finished reading from.

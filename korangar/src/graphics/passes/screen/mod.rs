@@ -13,6 +13,7 @@ use crate::loaders::TextureLoader;
 mod aabb;
 mod ambient;
 mod ambient_light;
+mod circle;
 #[cfg(feature = "debug")]
 mod debug;
 mod directional_light;

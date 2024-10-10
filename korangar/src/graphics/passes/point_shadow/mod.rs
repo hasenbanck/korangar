@@ -51,7 +51,7 @@ impl Prepare for PointShadowRenderPassContext {
         instructions: &RenderInstruction,
     ) {
         self.uniforms_buffer.clear();
-        instructions.uniforms.point_shadow_caster.iter().for_each(|caster| {
+        instructions.point_shadow_caster.iter().for_each(|caster| {
             let uniform = PointShadowUniforms {
                 view_projection_matrices: [
                     caster.view_projection_matrices[0].into(),
