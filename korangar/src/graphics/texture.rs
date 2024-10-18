@@ -3,6 +3,7 @@ use std::num::NonZeroU32;
 use std::sync::{Arc, OnceLock};
 
 use derive_new::new;
+use image::RgbaImage;
 use wgpu::util::{DeviceExt, TextureDataOrder};
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource,
@@ -18,6 +19,7 @@ pub struct Texture {
     label: Option<String>,
     texture: wgpu::Texture,
     texture_view: TextureView,
+    pub data: Option<RgbaImage>,
 }
 
 impl Debug for Texture {
@@ -42,6 +44,7 @@ impl Texture {
             label,
             texture,
             texture_view,
+            data: None,
         }
     }
 
@@ -57,6 +60,7 @@ impl Texture {
             label,
             texture,
             texture_view,
+            data: Some(RgbaImage::from_raw(descriptor.size.width, descriptor.size.height, data.to_owned()).unwrap()),
         }
     }
 

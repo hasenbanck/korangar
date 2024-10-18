@@ -2,15 +2,17 @@ mod vertices;
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use bytemuck::Pod;
-use cgmath::Vector3;
+use cgmath::{Vector2, Vector3};
 use derive_new::new;
 use korangar_audio::AudioEngine;
 #[cfg(feature = "debug")]
 use korangar_debug::logging::Timer;
 use korangar_util::collision::{KDTree, Sphere, AABB};
 use korangar_util::container::SimpleSlab;
+use korangar_util::texture_atlas::TextureAtlas;
 use korangar_util::FileLoader;
 use ragnarok_bytes::{ByteStream, FromBytes};
 use ragnarok_formats::map::{GatData, GroundData, GroundTile, MapData, MapResources};
@@ -161,6 +163,17 @@ impl MapLoader {
             })
             .collect();
         let light_sources_kdtree = KDTree::from_objects(&light_source_spheres);
+
+        let mut atlas = TextureAtlas::new(Vector2::new(8 * 1024, 8 * 1024));
+
+        let start = Instant::now();
+        for texture in texture_buffer.iter() {
+            atlas.allocate_with_data(texture.data.as_ref().unwrap()).unwrap();
+        }
+        let duration = Instant::now().duration_since(start).as_millis();
+        println!("Duration: {duration}");
+
+        atlas.save_atlas("output.png").unwrap();
 
         let vertex_buffer = self.create_vertex_buffer(&resource_file, "map vertices", &vertices);
         let textures = TextureGroup::new(&self.device, &map_file_name, texture_buffer);

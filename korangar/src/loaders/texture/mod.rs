@@ -3,7 +3,7 @@ use std::io::Cursor;
 use std::sync::{Arc, Mutex};
 
 use derive_new::new;
-use image::{EncodableLayout, ImageFormat, ImageReader, Rgba};
+use image::{EncodableLayout, ImageFormat, ImageReader, Rgba, RgbaImage};
 #[cfg(feature = "debug")]
 use korangar_debug::logging::{print_debug, Colorize, Timer};
 use korangar_util::FileLoader;
@@ -25,8 +25,37 @@ pub struct TextureLoader {
 
 impl TextureLoader {
     fn load(&self, path: &str) -> Result<Arc<Texture>, LoadError> {
+        let texture_data = self.load_texture_data(path)?;
+
+        let texture = Texture::new_with_data(
+            &self.device,
+            &self.queue,
+            &TextureDescriptor {
+                label: Some(path),
+                size: Extent3d {
+                    width: texture_data.width(),
+                    height: texture_data.height(),
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: TextureDimension::D2,
+                format: TextureFormat::Rgba8UnormSrgb,
+                usage: TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            },
+            texture_data.as_bytes(),
+        );
+        let texture = Arc::new(texture);
+
+        self.cache.lock().as_mut().unwrap().insert(path.to_string(), texture.clone());
+
+        Ok(texture)
+    }
+
+    pub fn load_texture_data(&self, path: &str) -> Result<RgbaImage, LoadError> {
         #[cfg(feature = "debug")]
-        let timer = Timer::new_dynamic(format!("load texture from {}", path.magenta()));
+        let timer = Timer::new_dynamic(format!("load texture data from {}", path.magenta()));
 
         let image_format = match &path[path.len() - 4..] {
             ".png" => ImageFormat::Png,
@@ -57,7 +86,7 @@ impl TextureLoader {
                     _ => unreachable!(),
                 };
 
-                return self.get(fallback_path);
+                return self.load_texture_data(fallback_path);
             }
         };
 
@@ -69,33 +98,10 @@ impl TextureLoader {
                 .for_each(|pixel| *pixel = Rgba([0; 4]));
         }
 
-        let texture = Texture::new_with_data(
-            &self.device,
-            &self.queue,
-            &TextureDescriptor {
-                label: Some(path),
-                size: Extent3d {
-                    width: image_buffer.width(),
-                    height: image_buffer.height(),
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: TextureDimension::D2,
-                format: TextureFormat::Rgba8UnormSrgb,
-                usage: TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            },
-            image_buffer.as_bytes(),
-        );
-        let texture = Arc::new(texture);
-
-        self.cache.lock().as_mut().unwrap().insert(path.to_string(), texture.clone());
-
         #[cfg(feature = "debug")]
         timer.stop();
 
-        Ok(texture)
+        Ok(image_buffer)
     }
 
     pub fn get(&self, path: &str) -> Result<Arc<Texture>, LoadError> {
