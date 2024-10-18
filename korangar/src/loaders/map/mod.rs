@@ -12,7 +12,7 @@ use korangar_audio::AudioEngine;
 use korangar_debug::logging::Timer;
 use korangar_util::collision::{KDTree, Sphere, AABB};
 use korangar_util::container::SimpleSlab;
-use korangar_util::texture_atlas::TextureAtlas;
+use korangar_util::texture_atlas::{BinaryTreeTextureAtlas, TextureAtlas};
 use korangar_util::FileLoader;
 use ragnarok_bytes::{ByteStream, FromBytes};
 use ragnarok_formats::map::{GatData, GroundData, GroundTile, MapData, MapResources};
@@ -164,7 +164,7 @@ impl MapLoader {
             .collect();
         let light_sources_kdtree = KDTree::from_objects(&light_source_spheres);
 
-        let mut atlas = TextureAtlas::new(Vector2::new(8 * 1024, 8 * 1024));
+        let mut atlas = BinaryTreeTextureAtlas::new(Vector2::new(8 * 1024, 8 * 1024));
 
         let start = Instant::now();
         for texture in texture_buffer.iter() {

@@ -211,6 +211,148 @@ impl TextureAtlas {
     }
 }
 
+#[derive(Clone)]
+struct Node {
+    children: Option<Box<[Node; 2]>>,
+    rectangle: Rectangle,
+    is_filled: bool,
+}
+
+impl Node {
+    fn new(rectangle: Rectangle) -> Self {
+        Self {
+            children: None,
+            rectangle,
+            is_filled: false,
+        }
+    }
+
+    fn insert(&mut self, size: Vector2<u32>) -> Option<Rectangle> {
+        if let Some(children) = &mut self.children {
+            children[0].insert(size).or_else(|| children[1].insert(size))
+        } else {
+            if self.is_filled {
+                return None;
+            }
+
+            if size.x > self.rectangle.width() || size.y > self.rectangle.height() {
+                return None;
+            }
+
+            if size.x == self.rectangle.width() && size.y == self.rectangle.height() {
+                self.is_filled = true;
+                return Some(self.rectangle);
+            }
+
+            let dw = self.rectangle.width() - size.x;
+            let dh = self.rectangle.height() - size.y;
+
+            self.children = Some(Box::new([
+                Node::new(if dw > dh {
+                    Rectangle::new(
+                        self.rectangle.min,
+                        Vector2::new(self.rectangle.min.x + size.x, self.rectangle.max.y),
+                    )
+                } else {
+                    Rectangle::new(
+                        self.rectangle.min,
+                        Vector2::new(self.rectangle.max.x, self.rectangle.min.y + size.y),
+                    )
+                }),
+                Node::new(if dw > dh {
+                    Rectangle::new(
+                        Vector2::new(self.rectangle.min.x + size.x, self.rectangle.min.y),
+                        self.rectangle.max,
+                    )
+                } else {
+                    Rectangle::new(
+                        Vector2::new(self.rectangle.min.x, self.rectangle.min.y + size.y),
+                        self.rectangle.max,
+                    )
+                }),
+            ]));
+
+            self.children.as_mut().unwrap()[0].insert(size)
+        }
+    }
+}
+
+pub struct BinaryTreeTextureAtlas {
+    size: Vector2<u32>,
+    max_size: Vector2<u32>,
+    root: Node,
+    image: RgbaImage,
+}
+
+impl BinaryTreeTextureAtlas {
+    pub fn new(max_size: Vector2<u32>) -> Self {
+        let initial_size = Vector2::new(max_size.x, INITIAL_HEIGHT);
+        BinaryTreeTextureAtlas {
+            size: initial_size,
+            max_size,
+            root: Node::new(Rectangle::new(Vector2::new(0, 0), initial_size)),
+            image: RgbaImage::new(initial_size.x, initial_size.y),
+        }
+    }
+
+    pub fn allocate(&mut self, size: Vector2<u32>) -> Option<Allocation> {
+        if size.x > self.max_size.x || size.y > self.max_size.y {
+            return None;
+        }
+
+        let allocation = self.try_allocate(size);
+        if allocation.is_some() {
+            return allocation;
+        }
+
+        while self.size.y < self.max_size.y {
+            self.grow();
+            let allocation = self.try_allocate(size);
+            if allocation.is_some() {
+                return allocation;
+            }
+        }
+
+        None
+    }
+
+    fn try_allocate(&mut self, size: Vector2<u32>) -> Option<Allocation> {
+        self.root.insert(size).map(|rectangle| Allocation { rectangle })
+    }
+
+    pub fn allocate_with_data(&mut self, image: &RgbaImage) -> Option<Allocation> {
+        let size = Vector2::new(image.width(), image.height());
+        let allocation = self.allocate(size)?;
+        self.write_image_data(&allocation, image);
+        Some(allocation)
+    }
+
+    pub fn save_atlas(&self, path: &str) -> Result<(), image::ImageError> {
+        self.image.save(path)
+    }
+
+    fn grow(&mut self) {
+        let old_height = self.size.y;
+        self.size.y = (self.size.y + GROWTH_HEIGHT).min(self.max_size.y);
+
+        let new_area = Rectangle::new(Vector2::new(0, old_height), Vector2::new(self.size.x, self.size.y));
+        let old_root = std::mem::replace(&mut self.root, Node::new(Rectangle::new(Vector2::new(0, 0), self.size)));
+        self.root.children = Some(Box::new([old_root, Node::new(new_area)]));
+
+        let mut new_image = RgbaImage::new(self.size.x, self.size.y);
+        let _ = new_image.copy_from(&self.image, 0, 0);
+        self.image = new_image;
+    }
+
+    fn write_image_data(&mut self, allocation: &Allocation, image: &RgbaImage) {
+        for (x, y, pixel) in image.enumerate_pixels() {
+            let atlas_x = allocation.rectangle.min.x + x;
+            let atlas_y = allocation.rectangle.min.y + y;
+            self.image.put_pixel(atlas_x, atlas_y, *pixel);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
