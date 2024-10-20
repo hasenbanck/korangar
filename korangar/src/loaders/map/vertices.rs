@@ -101,7 +101,7 @@ pub fn ground_water_vertices(ground_data: &GroundData, water_level: f32) -> (Vec
                         first_position,
                         first_normal,
                         first_texture_coordinates,
-                        ground_surface.texture_index as i32 % 29, // TODO: remove when texture count is no longer an issue
+                        ground_surface.texture_index as i32,
                         ground_surface.color.into(),
                         0.0,
                     ));
@@ -109,7 +109,7 @@ pub fn ground_water_vertices(ground_data: &GroundData, water_level: f32) -> (Vec
                         second_position,
                         first_normal,
                         second_texture_coordinates,
-                        ground_surface.texture_index as i32 % 29, // TODO: remove when texture count is no longer an issue
+                        ground_surface.texture_index as i32,
                         color_right,
                         0.0,
                     ));
@@ -117,7 +117,7 @@ pub fn ground_water_vertices(ground_data: &GroundData, water_level: f32) -> (Vec
                         third_position,
                         first_normal,
                         third_texture_coordinates,
-                        ground_surface.texture_index as i32 % 29, // TODO: remove when texture count is no longer an issue
+                        ground_surface.texture_index as i32,
                         color_top_right,
                         0.0,
                     ));
@@ -126,7 +126,7 @@ pub fn ground_water_vertices(ground_data: &GroundData, water_level: f32) -> (Vec
                         first_position,
                         second_normal,
                         first_texture_coordinates,
-                        ground_surface.texture_index as i32 % 29, // TODO: remove when texture count is no longer an issue
+                        ground_surface.texture_index as i32,
                         ground_surface.color.into(),
                         0.0,
                     ));
@@ -134,7 +134,7 @@ pub fn ground_water_vertices(ground_data: &GroundData, water_level: f32) -> (Vec
                         third_position,
                         second_normal,
                         third_texture_coordinates,
-                        ground_surface.texture_index as i32 % 29, // TODO: remove when texture count is no longer an issue
+                        ground_surface.texture_index as i32,
                         color_top_right,
                         0.0,
                     ));
@@ -142,7 +142,7 @@ pub fn ground_water_vertices(ground_data: &GroundData, water_level: f32) -> (Vec
                         fourth_position,
                         second_normal,
                         fourth_texture_coordinates,
-                        ground_surface.texture_index as i32 % 29, // TODO: remove when texture count is no longer an issue
+                        ground_surface.texture_index as i32,
                         color_top,
                         0.0,
                     ));
