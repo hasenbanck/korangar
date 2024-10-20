@@ -48,7 +48,7 @@ struct FragmentOutput {
 @group(0) @binding(0) var<uniform> global_uniforms: GlobalUniforms;
 @group(0) @binding(2) var linear_sampler: sampler;
 @group(1) @binding(0) var<storage, read> instance_data: array<InstanceData>;
-@group(1) @binding(1) var textures: binding_array<texture_2d<f32>>;
+@group(1) @binding(1) var textures: binding_array<texture_2d<f32>, 56>;
 
 override near_plane: f32;
 

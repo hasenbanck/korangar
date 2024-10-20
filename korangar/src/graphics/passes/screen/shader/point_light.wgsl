@@ -31,7 +31,7 @@ struct VertexOutput {
 @group(1) @binding(0) var diffuse_buffer: texture_multisampled_2d<f32>;
 @group(1) @binding(1) var normal_buffer: texture_multisampled_2d<f32>;
 @group(1) @binding(3) var depth_buffer: texture_depth_multisampled_2d;
-@group(1) @binding(5) var shadow_maps: binding_array<texture_depth_cube>;
+@group(1) @binding(5) var shadow_maps: binding_array<texture_depth_cube, 6>;
 @group(2) @binding(0) var<storage, read> instance_data: array<InstanceData>;
 
 @vertex

@@ -33,7 +33,7 @@ struct VertexOutput {
 @group(0) @binding(1) var nearest_sampler: sampler;
 @group(1) @binding(0) var<uniform> pass_uniforms: PassUniforms;
 @group(2) @binding(0) var<storage, read> instance_data: array<InstanceData>;
-@group(2) @binding(1) var textures: binding_array<texture_2d<f32>>;
+@group(2) @binding(1) var textures: binding_array<texture_2d<f32>, 56>;
 
 override near_plane: f32;
 
