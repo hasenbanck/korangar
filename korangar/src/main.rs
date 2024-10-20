@@ -61,6 +61,7 @@ use korangar_networking::{
     DisconnectReason, HotkeyState, LoginServerLoginData, MessageColor, NetworkEvent, NetworkEventBuffer, NetworkingSystem, SellItem,
     ShopItem,
 };
+#[cfg(feature = "debug")]
 use korangar_util::texture_atlas::AtlasAllocation;
 #[cfg(not(feature = "debug"))]
 use ragnarok_packets::handler::NoPacketCallback;

@@ -84,7 +84,7 @@ impl MapLoader {
         #[cfg(feature = "debug")]
         let (tile_vertices, tile_picker_vertices) = generate_tile_vertices(&mut gat_data, tile_texture_mapping);
         #[cfg(not(feature = "debug"))]
-        let tile_picker_vertices = generate_tile_vertices(&mut gat_data);
+        let (_, tile_picker_vertices) = generate_tile_vertices(&mut gat_data);
 
         let water_level = -map_data
             .water_settings

@@ -1,9 +1,12 @@
 use cgmath::{Point3, Vector2};
+#[cfg(feature = "debug")]
 use korangar_util::texture_atlas::AtlasAllocation;
 use ragnarok_formats::map::{GatData, GroundData, GroundTile, SurfaceType};
 
 use super::GroundTileExt;
-use crate::graphics::{Color, ModelVertex, NativeModelVertex, PickerTarget, TileVertex, WaterVertex};
+#[cfg(feature = "debug")]
+use crate::graphics::Color;
+use crate::graphics::{ModelVertex, NativeModelVertex, PickerTarget, TileVertex, WaterVertex};
 
 pub const MAP_TILE_SIZE: f32 = 10.0;
 
@@ -180,7 +183,11 @@ pub fn generate_tile_vertices(
     const HALF_TILE_SIZE: f32 = MAP_TILE_SIZE / 2.0;
     const TILE_MESH_OFFSET: f32 = 0.9;
 
+    #[cfg(feature = "debug")]
     let mut tile_vertices = Vec::new();
+    #[cfg(not(feature = "debug"))]
+    let tile_vertices = Vec::new();
+
     let mut tile_picker_vertices = Vec::new();
 
     let mut count = 0;

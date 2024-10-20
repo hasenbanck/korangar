@@ -1,6 +1,5 @@
 #[cfg(feature = "debug")]
 use std::collections::HashSet;
-#[cfg(feature = "debug")]
 use std::sync::Arc;
 
 use cgmath::{Array, Matrix4, Point3, SquareMatrix, Vector2, Vector3};
