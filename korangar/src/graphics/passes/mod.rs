@@ -1,4 +1,5 @@
 mod cmaa2;
+mod depth_of_field_resolve;
 mod directional_shadow;
 mod forward;
 mod interface;
@@ -12,6 +13,7 @@ use std::marker::ConstParamTy;
 
 use bytemuck::{Pod, Zeroable};
 pub(crate) use cmaa2::*;
+pub(crate) use depth_of_field_resolve::*;
 pub(crate) use directional_shadow::*;
 pub(crate) use forward::*;
 pub(crate) use interface::*;

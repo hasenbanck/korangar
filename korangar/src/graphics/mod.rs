@@ -66,6 +66,7 @@ const LIGHT_TILE_SIZE: u32 = 16;
 /// Bot requirements are needed at the same time, since we want to be able to
 /// re-use the forward color texture, if possible.
 pub const RENDER_TO_TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
+pub const DEPTH_TEXTURE_FORMAT: TextureFormat = TextureFormat::Depth32Float;
 
 pub const INTERFACE_TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba8UnormSrgb;
 pub const FXAA_COLOR_LUMA_TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba8UnormSrgb;
@@ -147,11 +148,23 @@ pub(crate) struct TileLightIndices {
     indices: [u32; 256],
 }
 
+#[derive(Copy, Clone, Default, Pod, Zeroable)]
+#[repr(C)]
+pub(crate) struct DepthOfFieldUniforms {
+    focal_start: f32,
+    focal_end: f32,
+    near_kernel: f32,
+    far_kernel: f32,
+    near_blend: f32,
+    coc_ramp: f32,
+}
+
 /// Holds all GPU resources that are shared by multiple passes.
 pub(crate) struct GlobalContext {
     pub(crate) surface_texture_format: TextureFormat,
     pub(crate) msaa: Msaa,
     pub(crate) screen_space_anti_aliasing: ScreenSpaceAntiAliasing,
+    pub(crate) depth_of_field: bool,
     pub(crate) solid_pixel_texture: Arc<Texture>,
     pub(crate) walk_indicator_texture: Arc<Texture>,
     pub(crate) forward_depth_texture: AttachmentTexture,
@@ -159,6 +172,7 @@ pub(crate) struct GlobalContext {
     pub(crate) picker_depth_texture: AttachmentTexture,
     pub(crate) forward_color_texture: AttachmentTexture,
     pub(crate) resolved_color_texture: Option<AttachmentTexture>,
+    pub(crate) resolved_depth_texture: Option<AttachmentTexture>,
     pub(crate) interface_buffer_texture: AttachmentTexture,
     pub(crate) directional_shadow_map_texture: AttachmentTexture,
     pub(crate) point_shadow_map_textures: CubeArrayTexture,
@@ -168,6 +182,7 @@ pub(crate) struct GlobalContext {
     pub(crate) point_light_data_buffer: Buffer<PointLightData>,
     #[cfg(feature = "debug")]
     pub(crate) debug_uniforms_buffer: Buffer<DebugUniforms>,
+    pub(crate) depth_of_field_resources: Option<DepthOfFieldResources>,
     pub(crate) picker_value_buffer: Buffer<u64>,
     pub(crate) tile_light_indices_buffer: Buffer<TileLightIndices>,
     pub(crate) anti_aliasing_resources: AntiAliasingResource,
@@ -358,6 +373,7 @@ impl GlobalContext {
         surface_texture_format: TextureFormat,
         msaa: Msaa,
         screen_space_anti_aliasing: ScreenSpaceAntiAliasing,
+        depth_of_field: bool,
         screen_size: ScreenSize,
         shadow_detail: ShadowDetail,
         texture_sampler: TextureSamplerType,
@@ -384,7 +400,8 @@ impl GlobalContext {
         let screen_textures = Self::create_screen_size_textures(device, screen_size, msaa, screen_space_anti_aliasing);
         let directional_shadow_map_texture = Self::create_directional_shadow_texture(device, directional_shadow_size);
         let point_shadow_map_textures = Self::create_point_shadow_textures(device, point_shadow_size);
-        let resolved_color_texture = Self::create_resolved_color_texture(device, screen_size, msaa, screen_space_anti_aliasing);
+        let (resolved_color_texture, resolved_depth_texture) =
+            Self::create_resolved_textures(device, screen_size, msaa, screen_space_anti_aliasing, depth_of_field);
 
         let picker_value_buffer = Buffer::with_capacity(
             device,
@@ -469,6 +486,7 @@ impl GlobalContext {
             surface_texture_format,
             msaa,
             screen_space_anti_aliasing,
+            depth_of_field,
             solid_pixel_texture,
             walk_indicator_texture,
             forward_depth_texture: screen_textures.forward_depth_texture,
@@ -476,6 +494,7 @@ impl GlobalContext {
             picker_depth_texture: screen_textures.picker_depth_texture,
             forward_color_texture: screen_textures.forward_color_texture,
             resolved_color_texture,
+            resolved_depth_texture,
             interface_buffer_texture: screen_textures.interface_buffer_texture,
             directional_shadow_map_texture,
             point_shadow_map_textures,
@@ -488,6 +507,7 @@ impl GlobalContext {
             tile_light_indices_buffer,
             #[cfg(feature = "debug")]
             debug_uniforms_buffer,
+            depth_of_field_resources: None,
             picker_value_buffer,
             point_light_data_buffer,
             anti_aliasing_resources,
@@ -531,7 +551,7 @@ impl GlobalContext {
             TextureFormat::Rg32Uint,
             AttachmentTextureType::PickerAttachment,
         );
-        let picker_depth_texture = picker_factory.new_attachment("depth", TextureFormat::Depth32Float, AttachmentTextureType::Depth);
+        let picker_depth_texture = picker_factory.new_attachment("depth", DEPTH_TEXTURE_FORMAT, AttachmentTextureType::Depth);
 
         let (forward_color_texture, forward_depth_texture) =
             Self::create_forward_texture(device, screen_size, msaa, screen_space_anti_aliasing);
@@ -558,25 +578,34 @@ impl GlobalContext {
         }
     }
 
-    fn create_resolved_color_texture(
+    fn create_resolved_textures(
         device: &Device,
         screen_size: ScreenSize,
         msaa: Msaa,
         screen_space_anti_aliasing: ScreenSpaceAntiAliasing,
-    ) -> Option<AttachmentTexture> {
-        let need_texture = msaa.multisampling_activated();
-        let attachment_type = match screen_space_anti_aliasing == ScreenSpaceAntiAliasing::Cmaa2 {
+        depth_of_field: bool,
+    ) -> (Option<AttachmentTexture>, Option<AttachmentTexture>) {
+        let need_color_texture = msaa.multisampling_activated();
+        let need_depth_texture = depth_of_field;
+
+        let attachment_type = match screen_space_anti_aliasing == ScreenSpaceAntiAliasing::Cmaa2 || depth_of_field {
             true => AttachmentTextureType::ColorStorageAttachment,
             false => AttachmentTextureType::ColorAttachment,
         };
 
-        match need_texture {
-            true => {
-                let attachment_factory = AttachmentTextureFactory::new(device, screen_size, 1, None);
-                Some(attachment_factory.new_attachment("resolved color", RENDER_TO_TEXTURE_FORMAT, attachment_type))
-            }
+        let attachment_factory = AttachmentTextureFactory::new(device, screen_size, 1, None);
+
+        let color_texture = match need_color_texture {
+            true => Some(attachment_factory.new_attachment("resolved color", RENDER_TO_TEXTURE_FORMAT, attachment_type)),
             false => None,
-        }
+        };
+
+        let depth_texture = match need_depth_texture {
+            true => Some(attachment_factory.new_attachment("resolved depth", DEPTH_TEXTURE_FORMAT, AttachmentTextureType::DepthAttachment)),
+            false => None,
+        };
+
+        (color_texture, depth_texture)
     }
 
     fn create_forward_texture(
@@ -592,7 +621,7 @@ impl GlobalContext {
 
         let factory = AttachmentTextureFactory::new(device, screen_size, msaa.sample_count(), None);
         let color_texture = factory.new_attachment("forward color", RENDER_TO_TEXTURE_FORMAT, texture_type);
-        let depth_texture = factory.new_attachment("forward depth", TextureFormat::Depth32Float, AttachmentTextureType::Depth);
+        let depth_texture = factory.new_attachment("forward depth", DEPTH_TEXTURE_FORMAT, AttachmentTextureType::Depth);
         (color_texture, depth_texture)
     }
 
@@ -601,7 +630,7 @@ impl GlobalContext {
 
         shadow_factory.new_attachment(
             "directional shadow map",
-            TextureFormat::Depth32Float,
+            DEPTH_TEXTURE_FORMAT,
             AttachmentTextureType::DepthAttachment,
         )
     }
@@ -622,10 +651,85 @@ impl GlobalContext {
             device,
             "point shadow map",
             shadow_size,
-            TextureFormat::Depth32Float,
+            DEPTH_TEXTURE_FORMAT,
             AttachmentTextureType::DepthAttachment,
             NUMBER_OF_POINT_LIGHTS_WITH_SHADOWS as u32,
         )
+    }
+
+    fn create_depth_of_field_resources(device: &Device, screen_size: ScreenSize, depth_of_field: bool) -> Option<DepthOfFieldResources> {
+        match depth_of_field {
+            false => None,
+            true => {
+                let width = screen_size.width as u32;
+                let height = screen_size.height as u32;
+                let half_width = width / 2;
+                let half_height = height / 2;
+
+                let factory = AttachmentTextureFactory::new(device, screen_size, 1, None);
+
+                let color_texture = factory.new_attachment(
+                    "depth of field color",
+                    RENDER_TO_TEXTURE_FORMAT,
+                    AttachmentTextureType::ColorAttachment,
+                );
+
+                let circle_of_confusion_texture = StorageTexture::new(device, "circle of confusion", width, height, TextureFormat::R8Unorm);
+
+                let uniforms_buffer = Buffer::with_capacity(
+                    device,
+                    "depth of field uniforms",
+                    BufferUsages::UNIFORM,
+                    size_of::<DepthOfFieldUniforms>() as _,
+                );
+
+                let near_textures = [
+                    StorageTexture::new(
+                        device,
+                        "depth of field near 0",
+                        half_width,
+                        half_height,
+                        RENDER_TO_TEXTURE_FORMAT,
+                    ),
+                    StorageTexture::new(
+                        device,
+                        "depth of field near 1",
+                        half_width,
+                        half_height,
+                        RENDER_TO_TEXTURE_FORMAT,
+                    ),
+                ];
+
+                let far_textures = [
+                    StorageTexture::new(
+                        device,
+                        "depth of field far 0",
+                        half_width,
+                        half_height,
+                        RENDER_TO_TEXTURE_FORMAT,
+                    ),
+                    StorageTexture::new(
+                        device,
+                        "depth of field far 1",
+                        half_width,
+                        half_height,
+                        RENDER_TO_TEXTURE_FORMAT,
+                    ),
+                ];
+
+                let bind_group = Self::create_depth_of_field_bind_group(device);
+
+                Some(DepthOfFieldResources {
+                    uniforms: DepthOfFieldUniforms::default(),
+                    uniforms_buffer,
+                    color_texture,
+                    near_textures,
+                    far_textures,
+                    circle_of_confusion_texture,
+                    bind_group,
+                })
+            }
+        }
     }
 
     fn create_anti_aliasing_resources(
@@ -729,16 +833,20 @@ impl GlobalContext {
             tile_light_count_texture,
         } = Self::create_screen_size_textures(device, self.screen_size, self.msaa, self.screen_space_anti_aliasing);
 
-        let resolved_color_texture =
-            Self::create_resolved_color_texture(device, self.screen_size, self.msaa, self.screen_space_anti_aliasing);
-
         self.forward_color_texture = forward_color_texture;
         self.forward_depth_texture = forward_depth_texture;
         self.picker_buffer_texture = picker_buffer_texture;
         self.picker_depth_texture = picker_depth_texture;
-        self.resolved_color_texture = resolved_color_texture;
         self.interface_buffer_texture = interface_buffer_texture;
         self.tile_light_count_texture = tile_light_count_texture;
+
+        (self.resolved_color_texture, self.resolved_depth_texture) = Self::create_resolved_textures(
+            device,
+            self.screen_size,
+            self.msaa,
+            self.screen_space_anti_aliasing,
+            self.depth_of_field,
+        );
 
         self.tile_light_indices_buffer = Self::create_tile_light_indices_buffer(device, screen_size);
 
@@ -825,8 +933,13 @@ impl GlobalContext {
         (self.forward_color_texture, self.forward_depth_texture) =
             Self::create_forward_texture(device, self.screen_size, self.msaa, self.screen_space_anti_aliasing);
 
-        self.resolved_color_texture =
-            Self::create_resolved_color_texture(device, self.screen_size, self.msaa, self.screen_space_anti_aliasing);
+        (self.resolved_color_texture, self.resolved_depth_texture) = Self::create_resolved_textures(
+            device,
+            self.screen_size,
+            self.msaa,
+            self.screen_space_anti_aliasing,
+            self.depth_of_field,
+        );
     }
 
     fn update_screen_space_anti_aliasing(&mut self, device: &Device, screen_space_anti_aliasing: ScreenSpaceAntiAliasing) {
@@ -835,8 +948,13 @@ impl GlobalContext {
         (self.forward_color_texture, self.forward_depth_texture) =
             Self::create_forward_texture(device, self.screen_size, self.msaa, self.screen_space_anti_aliasing);
 
-        self.resolved_color_texture =
-            Self::create_resolved_color_texture(device, self.screen_size, self.msaa, self.screen_space_anti_aliasing);
+        (self.resolved_color_texture, self.resolved_depth_texture) = Self::create_resolved_textures(
+            device,
+            self.screen_size,
+            self.msaa,
+            self.screen_space_anti_aliasing,
+            self.depth_of_field,
+        );
 
         self.anti_aliasing_resources = Self::create_anti_aliasing_resources(device, self.screen_space_anti_aliasing, self.screen_size);
     }
@@ -988,6 +1106,16 @@ impl GlobalContext {
                         count: None,
                     },
                 ],
+            })
+        })
+    }
+
+    fn depth_of_field_bind_group_layout(device: &Device) -> &'static BindGroupLayout {
+        static LAYOUT: OnceLock<BindGroupLayout> = OnceLock::new();
+        LAYOUT.get_or_init(|| {
+            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                label: Some("depth of field"),
+                entries: &[],
             })
         })
     }
@@ -1252,6 +1380,14 @@ impl GlobalContext {
         })
     }
 
+    fn create_depth_of_field_bind_group(device: &Device) -> BindGroup {
+        device.create_bind_group(&BindGroupDescriptor {
+            label: Some("depth of field"),
+            layout: Self::depth_of_field_bind_group_layout(device),
+            entries: &[],
+        })
+    }
+
     fn create_cmaa2_bind_group(
         device: &Device,
         edges_textures: &StorageTexture,
@@ -1384,5 +1520,15 @@ pub(crate) struct Cmaa2Resources {
     _deferred_blend_item_list_heads_buffer: Buffer<u32>,
     _deferred_blend_item_list_buffer: Buffer<[u32; 2]>,
     _deferred_blend_location_list_buffer: Buffer<u32>,
+    bind_group: BindGroup,
+}
+
+pub(crate) struct DepthOfFieldResources {
+    uniforms: DepthOfFieldUniforms,
+    uniforms_buffer: Buffer<DepthOfFieldUniforms>,
+    color_texture: AttachmentTexture,
+    near_textures: [StorageTexture; 2],
+    far_textures: [StorageTexture; 2],
+    circle_of_confusion_texture: StorageTexture,
     bind_group: BindGroup,
 }

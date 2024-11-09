@@ -74,6 +74,7 @@ struct EngineContext {
     point_shadow_pass_context: PointShadowRenderPassContext,
     light_culling_pass_context: LightCullingPassContext,
     forward_pass_context: ForwardRenderPassContext,
+    depth_of_field_resolve_pass_context: DepthOfFieldResolveRenderPassContext,
     cmaa2_pass_context: Cmaa2ComputePassContext,
     post_processing_pass_context: PostProcessingRenderPassContext,
     screen_blit_pass_context: ScreenBlitRenderPassContext,
@@ -92,6 +93,7 @@ struct EngineContext {
     forward_indicator_drawer: ForwardIndicatorDrawer,
     forward_model_drawer: ForwardModelDrawer,
     forward_water_drawer: ForwardWaterDrawer,
+    depth_of_field_resolve_blitter_drawer: DepthOfFieldResolveBlitterDrawer,
     cmaa2_edge_colors_dispatcher: Cmaa2EdgeColorsDispatcher,
     cmaa2_calculate_dispatch_args_dispatcher: Cmaa2CalculateDispatchArgsDispatcher,
     cmaa2_process_candidates_dispatcher: Cmaa2ProcessCandidatesDispatcher,
@@ -170,6 +172,9 @@ impl GraphicsEngine {
                     self.previous_surface_texture_format = Some(surface_texture_format);
                     self.engine_context = None;
 
+                    // TODO: NHA Make this configurable.
+                    let depth_of_field = true;
+
                     time_phase!("create contexts", {
                         let global_context = GlobalContext::new(
                             &self.device,
@@ -178,6 +183,7 @@ impl GraphicsEngine {
                             surface_texture_format,
                             msaa,
                             screen_space_anti_aliasing,
+                            depth_of_field,
                             screen_size,
                             shadow_detail,
                             texture_sampler_type,
@@ -194,6 +200,8 @@ impl GraphicsEngine {
                         let light_culling_pass_context = LightCullingPassContext::new(&self.device, &self.queue, &global_context);
                         let forward_pass_context =
                             ForwardRenderPassContext::new(&self.device, &self.queue, &self.texture_loader, &global_context);
+                        let depth_of_field_resolve_pass_context =
+                            DepthOfFieldResolveRenderPassContext::new(&self.device, &self.queue, &self.texture_loader, &global_context);
                         let cmaa2_pass_context = Cmaa2ComputePassContext::new(&self.device, &self.queue, &global_context);
                         let post_processing_pass_context =
                             PostProcessingRenderPassContext::new(&self.device, &self.queue, &self.texture_loader, &global_context);
@@ -290,6 +298,16 @@ impl GraphicsEngine {
                             &global_context,
                             &forward_pass_context,
                         );
+
+                        let DepthOfFieldResources {
+                            depth_of_field_resolve_blitter_drawer,
+                        } = DepthOfFieldResources::create(
+                            &self.capabilities,
+                            &self.device,
+                            &self.queue,
+                            &global_context,
+                            &depth_of_field_resolve_pass_context,
+                        );
                         let Cmaa2Resources {
                             cmaa2_edge_colors_dispatcher,
                             cmaa2_calculate_dispatch_args_dispatcher,
@@ -341,6 +359,7 @@ impl GraphicsEngine {
                         point_shadow_pass_context,
                         light_culling_pass_context,
                         forward_pass_context,
+                        depth_of_field_resolve_pass_context,
                         cmaa2_pass_context,
                         post_processing_pass_context,
                         screen_blit_pass_context,
@@ -358,6 +377,7 @@ impl GraphicsEngine {
                         forward_indicator_drawer,
                         forward_model_drawer,
                         forward_water_drawer,
+                        depth_of_field_resolve_blitter_drawer,
                         cmaa2_edge_colors_dispatcher,
                         cmaa2_calculate_dispatch_args_dispatcher,
                         cmaa2_process_candidates_dispatcher,
@@ -908,6 +928,13 @@ impl GraphicsEngine {
                 }
             });
 
+            if engine_context.global_context.depth_of_field {
+                if engine_context.global_context.msaa.multisampling_activated() {
+                    todo!()
+                }
+                todo!()
+            }
+
             // Post Processing Pass
             let mut render_pass = match &engine_context.global_context.screen_space_anti_aliasing {
                 ScreenSpaceAntiAliasing::Off => {
@@ -981,6 +1008,7 @@ impl GraphicsEngine {
                         panic!("cmaa2 resources not set")
                     };
 
+                    // TODO: NHA Properly support MSAA + DOF + CMAA2
                     if let Some(resolved_color_texture) = engine_context.global_context.resolved_color_texture.as_ref() {
                         // We need to resolve the MSAA texture.
                         let mut render_pass = engine_context.post_processing_pass_context.create_pass(
@@ -1171,6 +1199,29 @@ impl ForwardResources {
             forward_aabb_drawer,
             #[cfg(feature = "debug")]
             forward_circle_drawer,
+        }
+    }
+}
+
+struct DepthOfFieldResources {
+    depth_of_field_resolve_blitter_drawer: DepthOfFieldResolveBlitterDrawer,
+}
+
+impl DepthOfFieldResources {
+    fn create(
+        capabilities: &Capabilities,
+        device: &Device,
+        queue: &Queue,
+        global_context: &GlobalContext,
+        depth_of_field_resolve_pass_context: &DepthOfFieldResolveRenderPassContext,
+    ) -> Self {
+        let depth_of_field_resolve_blitter_drawer =
+            DepthOfFieldResolveBlitterDrawer::new(capabilities, device, queue, global_context, depth_of_field_resolve_pass_context);
+
+        // TODO: Use this.
+
+        Self {
+            depth_of_field_resolve_blitter_drawer,
         }
     }
 }
