@@ -12,6 +12,7 @@ cpal = "0.15"
 derive-new = "0.7"
 etherparse = "0.16"
 hashbrown = "0.15"
+hecs = "0.10"
 image = { version = "0.25", default-features = false }
 kira = { version = "0.9", default-features = false }
 korangar_audio = { path = "korangar_audio" }

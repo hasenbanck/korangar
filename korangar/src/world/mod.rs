@@ -1,6 +1,7 @@
 mod animation;
 mod effect;
 mod entity;
+mod entity2;
 mod light;
 mod map;
 mod model;

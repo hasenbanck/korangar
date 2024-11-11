@@ -4,7 +4,6 @@ use std::sync::Arc;
 use cgmath::{EuclideanSpace, Point3, Vector2, VectorSpace};
 use derive_new::new;
 use korangar_interface::elements::PrototypeElement;
-use korangar_interface::windows::{PrototypeWindow, Window};
 use korangar_networking::EntityData;
 #[cfg(feature = "debug")]
 use korangar_util::texture_atlas::AtlasAllocation;
@@ -14,10 +13,8 @@ use ragnarok_packets::{AccountId, CharacterInformation, ClientTick, EntityId, Se
 use wgpu::{BufferUsages, Device, Queue};
 
 use crate::graphics::{Camera, EntityInstruction};
-use crate::interface::application::InterfaceSettings;
 use crate::interface::layout::{ScreenPosition, ScreenSize};
 use crate::interface::theme::GameTheme;
-use crate::interface::windows::WindowCache;
 use crate::loaders::{ActionLoader, AnimationLoader, AnimationState, ScriptLoader, SpriteLoader};
 use crate::renderer::GameInterfaceRenderer;
 #[cfg(feature = "debug")]
@@ -63,7 +60,6 @@ pub enum EntityType {
     Monster,
 }
 
-#[derive(PrototypeElement)]
 pub struct Common {
     pub entity_id: EntityId,
     pub job_id: usize,
@@ -73,15 +69,12 @@ pub struct Common {
     pub head_direction: usize,
     pub sex: Sex,
 
-    #[hidden_element]
     pub entity_type: EntityType,
     pub active_movement: Option<Movement>,
     pub animation_data: Arc<AnimationData>,
     pub grid_position: Vector2<usize>,
     pub position: Point3<f32>,
-    #[hidden_element]
     details: ResourceState<String>,
-    #[hidden_element]
     animation_state: AnimationState,
 }
 
@@ -236,7 +229,7 @@ fn get_sprite_path_for_player_job(job_id: usize) -> &'static str {
     }
 }
 
-fn get_entity_part_files(script_loader: &ScriptLoader, entity_type: EntityType, job_id: usize, sex: Sex) -> Vec<String> {
+pub fn get_entity_part_files(script_loader: &ScriptLoader, entity_type: EntityType, job_id: usize, sex: Sex) -> Vec<String> {
     let sex_sprite_path = match sex == Sex::Female {
         true => "¿©",
         false => "³²",
@@ -764,7 +757,6 @@ impl Common {
     }
 }
 
-#[derive(PrototypeWindow)]
 pub struct Player {
     common: Common,
     pub spell_points: usize,
@@ -894,7 +886,6 @@ impl Player {
     }
 }
 
-#[derive(PrototypeWindow)]
 pub struct Npc {
     common: Common,
 }
@@ -1102,6 +1093,7 @@ impl Entity {
     }
 }
 
+/*
 impl PrototypeWindow<InterfaceSettings> for Entity {
     fn to_window(
         &self,
@@ -1115,3 +1107,4 @@ impl PrototypeWindow<InterfaceSettings> for Entity {
         }
     }
 }
+*/

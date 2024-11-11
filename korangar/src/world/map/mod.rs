@@ -469,7 +469,7 @@ impl Map {
             MarkerIdentifier::SoundSource(index) => &self.sound_sources[index as usize],
             MarkerIdentifier::EffectSource(index) => &self.effect_sources[index as usize],
             MarkerIdentifier::Particle(..) => todo!(),
-            MarkerIdentifier::Entity(index) => &entities[index as usize],
+            MarkerIdentifier::Entity(..) => todo!(),
             MarkerIdentifier::Shadow(..) => todo!(),
         }
     }

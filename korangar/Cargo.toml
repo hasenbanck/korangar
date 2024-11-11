@@ -10,6 +10,7 @@ cgmath = { workspace = true, features = ["mint", "serde"] }
 chrono = { workspace = true }
 derive-new = { workspace = true }
 hashbrown = { workspace = true }
+hecs = { workspace = true, features = ["macros"] }
 image = { workspace = true, features = ["bmp", "png", "tga", "rayon"] }
 korangar_audio = { workspace = true }
 korangar_debug = { workspace = true, optional = true }
