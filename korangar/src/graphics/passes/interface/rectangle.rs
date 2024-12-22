@@ -6,10 +6,11 @@ use bytemuck::{Pod, Zeroable};
 use hashbrown::HashMap;
 use wgpu::util::StagingBelt;
 use wgpu::{
-    include_wgsl, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
-    BindingResource, BindingType, BlendState, BufferBindingType, BufferUsages, ColorTargetState, ColorWrites, CommandEncoder, Device,
-    FragmentState, MultisampleState, PipelineCompilationOptions, PipelineLayoutDescriptor, Queue, RenderPass, RenderPipeline,
-    RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderStages, TextureSampleType, TextureView, TextureViewDimension, VertexState,
+    include_spirv, include_wgsl, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
+    BindGroupLayoutEntry, BindingResource, BindingType, BlendState, BufferBindingType, BufferUsages, ColorTargetState, ColorWrites,
+    CommandEncoder, Device, FragmentState, MultisampleState, PipelineCompilationOptions, PipelineLayoutDescriptor, Queue, RenderPass,
+    RenderPipeline, RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderStages, TextureSampleType, TextureView, TextureViewDimension,
+    VertexState,
 };
 
 use crate::graphics::passes::{
@@ -19,6 +20,7 @@ use crate::graphics::{Buffer, Capabilities, GlobalContext, InterfaceRectangleIns
 
 const SHADER: ShaderModuleDescriptor = include_wgsl!("shader/rectangle.wgsl");
 const SHADER_BINDLESS: ShaderModuleDescriptor = include_wgsl!("shader/rectangle_bindless.wgsl");
+
 const DRAWER_NAME: &str = "interface rectangle";
 const INITIAL_INSTRUCTION_SIZE: usize = 1024;
 
@@ -61,10 +63,13 @@ impl Drawer<{ BindGroupCount::One }, { ColorAttachmentCount::One }, { DepthAttac
         global_context: &GlobalContext,
         render_pass_context: &Self::Context,
     ) -> Self {
-        let shader_module = if capabilities.supports_bindless() {
-            device.create_shader_module(SHADER_BINDLESS)
+        let (vs_module, fs_module) = if capabilities.supports_bindless() {
+            (
+                device.create_shader_module(include_spirv!("shader/rectangle_bindless.vs.spv")),
+                device.create_shader_module(include_spirv!("shader/rectangle_bindless.fs.spv")),
+            )
         } else {
-            device.create_shader_module(SHADER)
+            (device.create_shader_module(SHADER), device.create_shader_module(SHADER))
         };
 
         let instance_data_buffer = Buffer::with_capacity(
@@ -173,13 +178,13 @@ impl Drawer<{ BindGroupCount::One }, { ColorAttachmentCount::One }, { DepthAttac
             label: Some(DRAWER_NAME),
             layout: Some(&pipeline_layout),
             vertex: VertexState {
-                module: &shader_module,
+                module: &vs_module,
                 entry_point: Some("vs_main"),
                 compilation_options: PipelineCompilationOptions::default(),
                 buffers: &[],
             },
             fragment: Some(FragmentState {
-                module: &shader_module,
+                module: &fs_module,
                 entry_point: Some("fs_main"),
                 compilation_options: PipelineCompilationOptions::default(),
                 targets: &[Some(ColorTargetState {

@@ -112,7 +112,8 @@ impl Surface {
                 wgpu::SurfaceError::Outdated
                 | wgpu::SurfaceError::Lost
                 // If OutOfMemory happens, reconfiguring may not help, but we might as well try.
-                | wgpu::SurfaceError::OutOfMemory,
+                | wgpu::SurfaceError::OutOfMemory
+                | wgpu::SurfaceError::Other
             ) => {
                 self.surface.configure(&self.device, &self.config);
                 self.surface

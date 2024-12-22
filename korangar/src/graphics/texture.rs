@@ -45,10 +45,7 @@ impl Texture {
         let id = TEXTURE_ID.fetch_add(1, Ordering::Relaxed);
         let label = descriptor.label.map(|label| label.to_string());
         let texture = device.create_texture(descriptor);
-        let texture_view = texture.create_view(&TextureViewDescriptor {
-            label: descriptor.label,
-            ..Default::default()
-        });
+        let texture_view = texture.create_view(&TextureViewDescriptor { ..Default::default() });
 
         let bind_group = device.create_bind_group(&BindGroupDescriptor {
             label: descriptor.label,
@@ -92,10 +89,7 @@ impl Texture {
             descriptor.size,
         );
 
-        let texture_view = texture.create_view(&TextureViewDescriptor {
-            label: descriptor.label,
-            ..Default::default()
-        });
+        let texture_view = texture.create_view(&TextureViewDescriptor { ..Default::default() });
 
         let bind_group = device.create_bind_group(&BindGroupDescriptor {
             label: descriptor.label,
@@ -223,7 +217,8 @@ impl CubeArrayTexture {
                 label: Some("cube array face view"),
                 format: None,
                 dimension: Some(TextureViewDimension::D2),
-                aspect: wgpu::TextureAspect::All,
+                usage: None,
+                aspect: TextureAspect::All,
                 base_mip_level: 0,
                 mip_level_count: None,
                 base_array_layer: cube_index * 6 + face_index,
@@ -248,7 +243,8 @@ impl CubeArrayTexture {
             label: Some("cube array view"),
             format: None,
             dimension: Some(TextureViewDimension::CubeArray),
-            aspect: wgpu::TextureAspect::All,
+            usage: None,
+            aspect: TextureAspect::All,
             base_mip_level: 0,
             mip_level_count: None,
             base_array_layer: 0,
@@ -324,10 +320,7 @@ impl AttachmentTexture {
 
         let label = descriptor.label.map(|label| label.to_string());
         let texture = device.create_texture(&descriptor);
-        let texture_view = texture.create_view(&TextureViewDescriptor {
-            label: descriptor.label,
-            ..Default::default()
-        });
+        let texture_view = texture.create_view(&TextureViewDescriptor { ..Default::default() });
 
         let sample_type = descriptor.format.sample_type(Some(TextureAspect::All), None).unwrap();
 
@@ -479,10 +472,7 @@ impl StorageTexture {
             usage: TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
-        let texture_view = texture.create_view(&TextureViewDescriptor {
-            label: Some(label),
-            ..Default::default()
-        });
+        let texture_view = texture.create_view(&TextureViewDescriptor { ..Default::default() });
 
         Self {
             label: label.to_string(),

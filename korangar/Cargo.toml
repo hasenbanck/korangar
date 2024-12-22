@@ -36,7 +36,7 @@ serde = { workspace = true }
 serde-xml-rs = { workspace = true }
 spin_sleep = { workspace = true }
 walkdir = { workspace = true }
-wgpu = { workspace = true }
+wgpu = { workspace = true, features = ["spirv"] }
 winit = { workspace = true }
 xml-rs = { workspace = true }
 yazi = { workspace = true }

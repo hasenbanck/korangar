@@ -305,10 +305,7 @@ impl Client {
         time_phase!("create adapter", {
             let trace_dir = std::env::var("WGPU_TRACE");
             let backends = wgpu::util::backend_bits_from_env().unwrap_or_default();
-            let dx12_shader_compiler = wgpu::util::dx12_shader_compiler_from_env().unwrap_or(Dx12Compiler::Dxc {
-                dxil_path: None,
-                dxc_path: None,
-            });
+            let dx12_shader_compiler = wgpu::util::dx12_shader_compiler_from_env().unwrap_or(Dx12Compiler::StaticDxc {});
             let gles_minor_version = wgpu::util::gles_minor_version_from_env().unwrap_or_default();
             let flags = InstanceFlags::from_build_config().with_env();
 

@@ -14,14 +14,28 @@ pub(crate) fn create_new_sampler(
             mag_filter: FilterMode::Nearest,
             min_filter: FilterMode::Nearest,
             mipmap_filter: FilterMode::Nearest,
-            ..Default::default()
+            address_mode_u: Default::default(),
+            address_mode_v: Default::default(),
+            address_mode_w: Default::default(),
+            lod_min_clamp: 0.0,
+            lod_max_clamp: 32.0,
+            compare: None,
+            anisotropy_clamp: 1,
+            border_color: None,
         }),
         SamplerType::TextureLinear => device.create_sampler(&SamplerDescriptor {
             label: Some(label),
             mag_filter: FilterMode::Linear,
             min_filter: FilterMode::Linear,
             mipmap_filter: FilterMode::Linear,
-            ..Default::default()
+            address_mode_u: Default::default(),
+            address_mode_v: Default::default(),
+            address_mode_w: Default::default(),
+            lod_min_clamp: 0.0,
+            lod_max_clamp: 32.0,
+            compare: None,
+            anisotropy_clamp: 1,
+            border_color: None,
         }),
         SamplerType::TextureAnisotropic(anisotropy_clamp) => device.create_sampler(&SamplerDescriptor {
             label: Some(label),
@@ -29,7 +43,13 @@ pub(crate) fn create_new_sampler(
             min_filter: FilterMode::Linear,
             mipmap_filter: FilterMode::Linear,
             anisotropy_clamp,
-            ..Default::default()
+            address_mode_u: Default::default(),
+            address_mode_v: Default::default(),
+            address_mode_w: Default::default(),
+            lod_min_clamp: 0.0,
+            lod_max_clamp: 32.0,
+            compare: None,
+            border_color: None,
         }),
         SamplerType::DepthCompare => {
             let mut descriptor = SamplerDescriptor {
@@ -38,7 +58,13 @@ pub(crate) fn create_new_sampler(
                 min_filter: FilterMode::Linear,
                 mipmap_filter: FilterMode::Linear,
                 compare: Some(CompareFunction::Greater),
-                ..Default::default()
+                address_mode_u: Default::default(),
+                address_mode_v: Default::default(),
+                address_mode_w: Default::default(),
+                lod_min_clamp: 0.0,
+                lod_max_clamp: 32.0,
+                anisotropy_clamp: 1,
+                border_color: None,
             };
 
             if capabilities.supports_clamp_to_border() {
