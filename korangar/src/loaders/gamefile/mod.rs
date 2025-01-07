@@ -61,12 +61,12 @@ impl GameFileLoader {
         }
     }
 
-    fn load_archive_from_path(path: &str) -> Box<dyn Archive> {
+    fn load_archive_from_path(path: &str, should_hash: bool) -> Box<dyn Archive> {
         let path = Path::new(path);
 
         match GameFileLoader::get_archive_type_by_path(path) {
-            ArchiveType::Folder => Box::new(FolderArchive::from_path(path)),
-            ArchiveType::Native => Box::new(NativeArchive::from_path(path)),
+            ArchiveType::Folder => Box::new(FolderArchive::from_path(path, should_hash)),
+            ArchiveType::Native => Box::new(NativeArchive::from_path(path, should_hash)),
         }
     }
 
@@ -77,12 +77,21 @@ impl GameFileLoader {
         let game_archive_list = GameArchiveList::load();
 
         game_archive_list.archives.iter().for_each(|path| {
-            let game_archive = Self::load_archive_from_path(path);
+            let game_archive = Self::load_archive_from_path(path, true);
             self.add_archive(game_archive);
         });
 
         #[cfg(feature = "debug")]
         timer.stop();
+    }
+
+    pub fn calculate_crc32(&self) -> u32 {
+        // TODO: NHA this always creates a different hash! Maybe we should also move
+        //       this into the "load_archives_from_settings" and create in on load?
+        let mut hasher = crc32fast::Hasher::new();
+        self.archives.read().unwrap().iter().for_each(|archive| archive.hash(&mut hasher));
+        hasher.finalize();
+        0
     }
 
     pub fn remove_patched_lua_files(&self) {
@@ -100,7 +109,7 @@ impl GameFileLoader {
             self.patch_lua_files();
         }
 
-        let lua_archive = Self::load_archive_from_path(LUA_GRF_FILE_NAME);
+        let lua_archive = Self::load_archive_from_path(LUA_GRF_FILE_NAME, false);
         self.add_archive(lua_archive);
     }
 
@@ -118,7 +127,7 @@ impl GameFileLoader {
 
         let path = Path::new(LUA_GRF_FILE_NAME);
         let mut lua_archive: Box<dyn Writable> = match GameFileLoader::get_archive_type_by_path(path) {
-            ArchiveType::Folder => Box::new(FolderArchive::from_path(path)),
+            ArchiveType::Folder => Box::new(FolderArchive::from_path(path, false)),
             ArchiveType::Native => Box::new(NativeArchiveBuilder::from_path(path)),
         };
 

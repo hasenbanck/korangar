@@ -5,6 +5,8 @@ use std::marker::PhantomData;
 use std::mem::swap;
 use std::slice::Iter;
 
+use serde::{Deserialize, Serialize};
+
 /// Trait for keys of simple slabs.
 pub trait SimpleKey: Copy {
     #[doc(hidden)]
@@ -209,6 +211,7 @@ impl<'a, I: SimpleKey, T> Drop for DrainIter<'a, I, T> {
 
 /// A secondary slab with generational slots. Re-uses the key from another
 /// [`SimpleSlab`].
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SecondarySimpleSlab<I, V> {
     entries: Vec<Option<V>>,
     _marker: PhantomData<I>,

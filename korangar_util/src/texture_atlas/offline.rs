@@ -126,6 +126,11 @@ impl OfflineTextureAtlas {
         self.allocations.get(allocation_id).copied()
     }
 
+    /// Returns all allocations.
+    pub fn get_allocations(&self) -> SecondarySimpleSlab<AllocationId, AtlasAllocation> {
+        self.allocations.clone()
+    }
+
     /// Builds the atlas with the optimal atlas size.
     pub fn build_atlas(&mut self) {
         if self.image.is_some() {

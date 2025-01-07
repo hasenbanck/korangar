@@ -165,6 +165,7 @@ struct Client {
     sprite_loader: Arc<SpriteLoader>,
     texture_loader: Arc<TextureLoader>,
     library: Library,
+    game_file_crc32: u32,
 
     interface_renderer: InterfaceRenderer,
     bottom_interface_renderer: GameInterfaceRenderer,
@@ -357,6 +358,10 @@ impl Client {
 
             game_file_loader.load_archives_from_settings();
             game_file_loader.load_patched_lua_files();
+
+            let game_file_crc32 = game_file_loader.calculate_crc32();
+            #[cfg(feature = "debug")]
+            print_debug!("game file hash: {:x}", game_file_crc32);
         });
 
         time_phase!("create audio engine", {
@@ -531,22 +536,23 @@ impl Client {
 
             #[cfg(feature = "debug")]
             let (pathing_texture_mapping, pathing_texture) =
-                TextureAtlasFactory::create_from_group(texture_loader.clone(), "pathing", false, &[
+                TextureAtlasFactory::create_from_group(game_file_crc32, texture_loader.clone(), "pathing", false, &[
                     "pathing_goal.png",
                     "pathing_straight.png",
                     "pathing_diagonal.png",
                 ]);
 
             #[cfg(feature = "debug")]
-            let (tile_texture_mapping, tile_texture) = TextureAtlasFactory::create_from_group(texture_loader.clone(), "tile", false, &[
-                "tile_0.png",
-                "tile_1.png",
-                "tile_2.png",
-                "tile_3.png",
-                "tile_4.png",
-                "tile_5.png",
-                "tile_6.png",
-            ]);
+            let (tile_texture_mapping, tile_texture) =
+                TextureAtlasFactory::create_from_group(game_file_crc32, texture_loader.clone(), "tile", false, &[
+                    "tile_0.png",
+                    "tile_1.png",
+                    "tile_2.png",
+                    "tile_3.png",
+                    "tile_4.png",
+                    "tile_5.png",
+                    "tile_6.png",
+                ]);
             #[cfg(feature = "debug")]
             let tile_texture_mapping = Arc::new(tile_texture_mapping);
 
@@ -565,6 +571,7 @@ impl Client {
         time_phase!("load default map", {
             let map = map_loader
                 .load(
+                    game_file_crc32,
                     DEFAULT_MAP.to_string(),
                     &model_loader,
                     texture_loader.clone(),
@@ -595,6 +602,7 @@ impl Client {
             sprite_loader,
             texture_loader,
             library,
+            game_file_crc32,
             interface_renderer,
             bottom_interface_renderer,
             middle_interface_renderer,
@@ -864,6 +872,7 @@ impl Client {
                     self.interface.close_all_windows_except(&mut self.focus_state);
 
                     self.async_loader.request_map_load(
+                        self.game_file_crc32,
                         DEFAULT_MAP.to_string(),
                         TilePosition::new(0, 0),
                         #[cfg(feature = "debug")]
@@ -1063,6 +1072,7 @@ impl Client {
                     self.entities.truncate(1);
 
                     self.async_loader.request_map_load(
+                        self.game_file_crc32,
                         map_name,
                         player_position,
                         #[cfg(feature = "debug")]

@@ -1,7 +1,8 @@
 use cgmath::{BaseNum, Point2, Vector2};
+use serde::{Deserialize, Serialize};
 
 /// Represents a rectangle in 2D space.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct Rectangle<N> {
     /// The minimal point of the rectangle (should be top left).
     pub min: Point2<N>,

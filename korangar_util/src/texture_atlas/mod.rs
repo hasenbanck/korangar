@@ -6,11 +6,12 @@ mod online;
 use cgmath::{Point2, Vector2};
 pub use offline::{AllocationId, OfflineTextureAtlas};
 pub use online::OnlineTextureAtlas;
+use serde::{Deserialize, Serialize};
 
 use crate::Rectangle;
 
 /// Represents an allocated rectangle in the texture atlas.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct AtlasAllocation {
     /// The rectangle that was allocated.
     pub rectangle: Rectangle<u32>,

@@ -1128,6 +1128,7 @@ dependencies = [
  "allocator-api2",
  "equivalent",
  "foldhash",
+ "serde",
 ]
 
 [[package]]
@@ -1597,6 +1598,7 @@ dependencies = [
  "cgmath",
  "chrono",
  "cosmic-text",
+ "crc32fast",
  "derive-new",
  "encoding_rs",
  "flate2",
@@ -1684,6 +1686,7 @@ dependencies = [
  "image",
  "korangar_interface",
  "rand",
+ "serde",
 ]
 
 [[package]]

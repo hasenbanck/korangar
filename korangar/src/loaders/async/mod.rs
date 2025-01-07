@@ -152,6 +152,7 @@ impl AsyncLoader {
 
     pub fn request_map_load(
         &self,
+        game_file_crc32: u32,
         map_name: String,
         player_position: TilePosition,
         #[cfg(feature = "debug")] tile_texture_mapping: Arc<Vec<AtlasAllocation>>,
@@ -165,6 +166,7 @@ impl AsyncLoader {
             let _load_measurement = Profiler::start_measurement("map load");
 
             let map = map_loader.load(
+                game_file_crc32,
                 map_name,
                 &model_loader,
                 texture_loader,
