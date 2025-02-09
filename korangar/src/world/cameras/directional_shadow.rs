@@ -3,8 +3,10 @@ use cgmath::{EuclideanSpace, InnerSpace, Matrix4, Point3, Transform, Vector2, Ve
 use super::Camera;
 use crate::graphics::orthographic_reverse_lh;
 
-const FAR_PLANE: f32 = 500.0;
-const NEAR_PLANE: f32 = -500.0;
+// For our ESM shadow implementation, we need to properly bound the shadow map's
+// depth, or else we get more light bleeding.
+const FAR_PLANE: f32 = 400.0;
+const NEAR_PLANE: f32 = -400.0;
 const MAX_BOUNDS: f32 = 200.0;
 const FOCUS_POINT_OFFSET: f32 = 50.0;
 const ORIGIN: Point3<f32> = Point3::new(0.0, 0.0, 0.0);

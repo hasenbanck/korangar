@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Formatter};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 
 use derive_new::new;
 use hashbrown::HashMap;
@@ -383,7 +383,11 @@ impl AttachmentTexture {
             array_layer_count: None,
         });
 
-        let sample_type = descriptor.format.sample_type(Some(TextureAspect::All), None).unwrap();
+        let mut sample_type = descriptor.format.sample_type(Some(TextureAspect::All), None).unwrap();
+
+        if let TextureSampleType::Float { filterable } = &mut sample_type {
+            *filterable = true;
+        }
 
         let layout = if descriptor.sample_count == 1 {
             Self::bind_group_layout(device, sample_type, false)
@@ -433,7 +437,7 @@ impl AttachmentTexture {
         &self.bind_group
     }
 
-    pub fn bind_group_layout(device: &Device, mut sample_type: TextureSampleType, multisampled: bool) -> Arc<BindGroupLayout> {
+    pub fn bind_group_layout(device: &Device, mut sample_type: TextureSampleType, multisampled: bool) -> &'static BindGroupLayout {
         if multisampled
             && let TextureSampleType::Float { filterable } = &mut sample_type
             && *filterable
@@ -441,7 +445,7 @@ impl AttachmentTexture {
             *filterable = false;
         }
 
-        static LAYOUTS: OnceLock<Mutex<HashMap<(bool, TextureSampleType), Arc<BindGroupLayout>>>> = OnceLock::new();
+        static LAYOUTS: OnceLock<Mutex<HashMap<(bool, TextureSampleType), &'static BindGroupLayout>>> = OnceLock::new();
         let layouts = LAYOUTS.get_or_init(|| Mutex::new(HashMap::new()));
         let lock = layouts.lock().unwrap();
         match lock.get(&(multisampled, sample_type)) {
@@ -459,12 +463,12 @@ impl AttachmentTexture {
                         count: None,
                     }],
                 });
-                let layout = Arc::new(layout);
+                let layout = Box::leak(Box::new(layout));
                 drop(lock);
-                layouts.lock().unwrap().insert((multisampled, sample_type), layout.clone());
+                layouts.lock().unwrap().insert((multisampled, sample_type), layout);
                 layout
             }
-            Some(layout) => layout.clone(),
+            Some(layout) => layout,
         }
     }
 }

@@ -14,6 +14,8 @@ struct VertexOutput {
     @location(0) texture_coordinates: vec2<f32>,
 }
 
+const ESM_FACTOR: f32 = 80.0;
+
 @group(0) @binding(2) var linear_sampler: sampler;
 @group(1) @binding(0) var<uniform> pass_uniforms: PassUniforms;
 @group(2) @binding(0) var<storage, read> instance_data: array<InstanceData>;
@@ -46,5 +48,6 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         discard;
     }
 
-    return diffuse_color;
+    let depth = input.position.z;
+    return vec4<f32>(exp(ESM_FACTOR * (1.0 - depth)), 0.0, 0.0, 1.0);
 }

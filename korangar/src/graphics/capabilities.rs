@@ -41,7 +41,7 @@ impl Capabilities {
             texture_compression: false,
             #[cfg(feature = "debug")]
             polygon_mode_line: false,
-            required_features: Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
+            required_features: Features::FLOAT32_FILTERABLE | Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
             required_limits: Limits::default().using_resolution(adapter.limits()),
         };
 
@@ -54,6 +54,7 @@ impl Capabilities {
             Self::check_feature(adapter_features, Features::ADDRESS_MODE_CLAMP_TO_BORDER);
             Self::check_feature(adapter_features, Features::ADDRESS_MODE_CLAMP_TO_ZERO);
             Self::check_feature(adapter_features, Features::INDIRECT_FIRST_INSTANCE);
+            Self::check_feature(adapter_features, Features::FLOAT32_FILTERABLE);
             Self::check_feature(adapter_features, Features::MULTI_DRAW_INDIRECT);
             Self::check_feature(adapter_features, Features::PARTIALLY_BOUND_BINDING_ARRAY);
             Self::check_feature(
@@ -63,6 +64,14 @@ impl Capabilities {
             Self::check_feature(adapter_features, Features::TEXTURE_COMPRESSION_BC);
             Self::check_feature(adapter_features, Features::TEXTURE_BINDING_ARRAY);
             Self::check_feature(adapter_features, Features::POLYGON_MODE_LINE);
+        }
+
+        if !adapter_features.contains(Features::FLOAT32_FILTERABLE) {
+            panic!("Required feature FLOAT32_FILTERABLE not supported")
+        }
+
+        if !adapter_features.contains(Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES) {
+            panic!("Required feature TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES not supported")
         }
 
         if adapter_features.contains(

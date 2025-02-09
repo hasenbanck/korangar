@@ -4,10 +4,10 @@ use bytemuck::{Pod, Zeroable};
 use wgpu::util::StagingBelt;
 use wgpu::{
     include_wgsl, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
-    BindingType, BufferAddress, BufferBindingType, BufferUsages, CommandEncoder, CompareFunction, DepthBiasState, DepthStencilState,
-    Device, FragmentState, MultisampleState, PipelineCompilationOptions, PipelineLayoutDescriptor, PrimitiveState, Queue, RenderPass,
-    RenderPipeline, RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderStages, StencilState, VertexAttribute, VertexBufferLayout,
-    VertexFormat, VertexState, VertexStepMode,
+    BindingType, BufferAddress, BufferBindingType, BufferUsages, ColorTargetState, ColorWrites, CommandEncoder, CompareFunction,
+    DepthBiasState, DepthStencilState, Device, FragmentState, MultisampleState, PipelineCompilationOptions, PipelineLayoutDescriptor,
+    PrimitiveState, Queue, RenderPass, RenderPipeline, RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderStages, StencilState,
+    VertexAttribute, VertexBufferLayout, VertexFormat, VertexState, VertexStepMode,
 };
 
 use crate::graphics::passes::{
@@ -39,7 +39,7 @@ pub(crate) struct DirectionalShadowModelDrawer {
     draw_commands: Vec<DrawIndirectArgs>,
 }
 
-impl Drawer<{ BindGroupCount::Two }, { ColorAttachmentCount::None }, { DepthAttachmentCount::One }> for DirectionalShadowModelDrawer {
+impl Drawer<{ BindGroupCount::Two }, { ColorAttachmentCount::One }, { DepthAttachmentCount::One }> for DirectionalShadowModelDrawer {
     type Context = DirectionalShadowRenderPassContext;
     type DrawData<'data> = ModelBatchDrawData<'data>;
 
@@ -124,7 +124,11 @@ impl Drawer<{ BindGroupCount::Two }, { ColorAttachmentCount::None }, { DepthAtta
                 module: &shader_module,
                 entry_point: Some("fs_main"),
                 compilation_options: PipelineCompilationOptions::default(),
-                targets: &[],
+                targets: &[Some(ColorTargetState {
+                    format: render_pass_context.color_attachment_formats()[0],
+                    blend: None,
+                    write_mask: ColorWrites::RED,
+                })],
             }),
             multiview: None,
             primitive: PrimitiveState::default(),

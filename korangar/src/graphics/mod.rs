@@ -85,8 +85,7 @@ pub(crate) struct GlobalUniforms {
     day_timer: f32,
     point_light_count: u32,
     enhanced_lighting: u32,
-    shadow_quality: u32,
-    padding: [u32; 1],
+    padding: [u32; 2],
 }
 
 #[derive(Copy, Clone, Default, Pod, Zeroable)]
@@ -141,6 +140,8 @@ pub(crate) struct GlobalContext {
     pub(crate) supersampled_color_texture: Option<AttachmentTexture>,
     pub(crate) interface_buffer_texture: AttachmentTexture,
     pub(crate) directional_shadow_map_texture: AttachmentTexture,
+    pub(crate) directional_shadow_filter_texture: AttachmentTexture,
+    pub(crate) directional_shadow_map_depth_texture: AttachmentTexture,
     pub(crate) point_shadow_map_textures: CubeArrayTexture,
     pub(crate) tile_light_count_texture: StorageTexture,
     pub(crate) global_uniforms_buffer: Buffer<GlobalUniforms>,
@@ -231,7 +232,6 @@ impl Prepare for GlobalContext {
             day_timer: instructions.uniforms.day_timer,
             point_light_count: (instructions.point_light_shadow_caster.len() + instructions.point_light.len()) as u32,
             enhanced_lighting: instructions.uniforms.enhanced_lighting as u32,
-            shadow_quality: instructions.uniforms.shadow_quality.into(),
             padding: Default::default(),
         };
 
@@ -380,7 +380,8 @@ impl GlobalContext {
         let walk_indicator_texture = texture_loader.get_or_load("grid.tga", ImageType::Color).unwrap();
         let forward_textures = Self::create_forward_textures(device, forward_size, msaa);
         let picker_textures = Self::create_picker_textures(device, screen_size);
-        let directional_shadow_map_texture = Self::create_directional_shadow_texture(device, directional_shadow_size);
+        let (directional_shadow_map_texture, directional_shadow_filter_texture, directional_shadow_map_depth_texture) =
+            Self::create_directional_shadow_textures(device, directional_shadow_size);
         let point_shadow_map_textures = Self::create_point_shadow_textures(device, point_shadow_size);
         let resolved_color_texture = Self::create_resolved_color_texture(device, forward_size, msaa);
         let supersampled_color_texture = Self::create_supersampled_texture(device, screen_size, ssaa);
@@ -483,6 +484,8 @@ impl GlobalContext {
             supersampled_color_texture,
             interface_buffer_texture,
             directional_shadow_map_texture,
+            directional_shadow_filter_texture,
+            directional_shadow_map_depth_texture,
             point_shadow_map_textures,
             tile_light_count_texture: forward_textures.tile_light_count_texture,
             global_uniforms_buffer,
@@ -605,13 +608,28 @@ impl GlobalContext {
         )
     }
 
-    fn create_directional_shadow_texture(device: &Device, shadow_size: ScreenSize) -> AttachmentTexture {
+    fn create_directional_shadow_textures(
+        device: &Device,
+        shadow_size: ScreenSize,
+    ) -> (AttachmentTexture, AttachmentTexture, AttachmentTexture) {
         let shadow_factory = AttachmentTextureFactory::new(device, shadow_size, 1, None);
 
-        shadow_factory.new_attachment(
-            "directional shadow map",
-            TextureFormat::Depth32Float,
-            AttachmentTextureType::DepthAttachment,
+        (
+            shadow_factory.new_attachment(
+                "directional shadow map",
+                TextureFormat::R32Float,
+                AttachmentTextureType::ColorAttachment,
+            ),
+            shadow_factory.new_attachment(
+                "directional shadow filter map",
+                TextureFormat::R32Float,
+                AttachmentTextureType::ColorAttachment,
+            ),
+            shadow_factory.new_attachment(
+                "directional shadow depth map",
+                TextureFormat::Depth32Float,
+                AttachmentTextureType::Depth,
+            ),
         )
     }
 
@@ -731,7 +749,11 @@ impl GlobalContext {
         self.directional_shadow_size = ScreenSize::uniform(shadow_detail.directional_shadow_resolution() as f32);
         self.point_shadow_size = ScreenSize::uniform(shadow_detail.point_shadow_resolution() as f32);
 
-        self.directional_shadow_map_texture = Self::create_directional_shadow_texture(device, self.directional_shadow_size);
+        (
+            self.directional_shadow_map_texture,
+            self.directional_shadow_filter_texture,
+            self.directional_shadow_map_depth_texture,
+        ) = Self::create_directional_shadow_textures(device, self.directional_shadow_size);
         self.point_shadow_map_textures = Self::create_point_shadow_textures(device, self.point_shadow_size);
 
         // We need to update this bind group, because it's content changed, and it isn't
@@ -914,7 +936,7 @@ impl GlobalContext {
                         binding: 1,
                         visibility: ShaderStages::FRAGMENT,
                         ty: BindingType::Texture {
-                            sample_type: TextureSampleType::Depth,
+                            sample_type: TextureSampleType::Float { filterable: true },
                             view_dimension: TextureViewDimension::D2,
                             multisampled: false,
                         },
@@ -996,7 +1018,7 @@ impl GlobalContext {
                         binding: 2,
                         visibility: ShaderStages::FRAGMENT,
                         ty: BindingType::Texture {
-                            sample_type: TextureSampleType::Depth,
+                            sample_type: TextureSampleType::Float { filterable: true },
                             view_dimension: TextureViewDimension::D2,
                             multisampled: false,
                         },

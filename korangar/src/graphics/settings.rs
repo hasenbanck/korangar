@@ -54,15 +54,6 @@ pub enum ShadowQuality {
     Soft,
 }
 
-impl From<ShadowQuality> for u32 {
-    fn from(value: ShadowQuality) -> Self {
-        match value {
-            ShadowQuality::Hard => 0,
-            ShadowQuality::Soft => 1,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum Msaa {
     Off,

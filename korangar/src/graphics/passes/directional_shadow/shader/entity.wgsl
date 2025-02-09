@@ -35,6 +35,13 @@ struct VertexOutput {
     @location(6) alpha: f32,
 }
 
+struct FragmentOutput {
+    @location(0) esm_value: vec4<f32>,
+    @builtin(frag_depth) depth: f32,
+}
+
+const ESM_FACTOR: f32 = 80.0;
+
 @group(0) @binding(2) var linear_sampler: sampler;
 @group(1) @binding(0) var<uniform> pass_uniforms: PassUniforms;
 @group(2) @binding(0) var<storage, read> instance_data: array<InstanceData>;
@@ -80,7 +87,7 @@ fn vs_main(
 }
 
 @fragment
-fn fs_main(input: VertexOutput) -> @builtin(frag_depth) f32 {
+fn fs_main(input: VertexOutput) -> FragmentOutput {
     let diffuse_color = textureSampleLevel(texture, linear_sampler, input.texture_coordinates, 0.0);
     if (diffuse_color.a != 1.0 || input.alpha != 1.0) {
         discard;
@@ -95,7 +102,10 @@ fn fs_main(input: VertexOutput) -> @builtin(frag_depth) f32 {
     let clip_position = pass_uniforms.view_projection * adjusted_world_position;
     let depth = saturate(clip_position.z / clip_position.w);
 
-    return depth;
+    var output: FragmentOutput;
+    output.depth = depth;
+    output.esm_value = vec4<f32>(exp(ESM_FACTOR * (1.0 - depth)), 0.0, 0.0, 1.0);
+    return output;
 }
 
 // Optimized version of the following truth table:

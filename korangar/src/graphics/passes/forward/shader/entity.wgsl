@@ -15,7 +15,6 @@ struct GlobalUniforms {
     day_timer: f32,
     point_light_count: u32,
     enhanced_lighting: u32,
-    shadow_quality: u32,
 }
 
 struct DirectionalLightUniforms {
@@ -72,12 +71,13 @@ struct FragmentOutput {
 }
 
 const TILE_SIZE: u32 = 16;
+const ESM_FACTOR: f32 = 80.0;
 
 @group(0) @binding(0) var<uniform> global_uniforms: GlobalUniforms;
 @group(0) @binding(2) var linear_sampler: sampler;
-@group(0) @binding(4) var shadow_map_sampler: sampler_comparison;
+@group(0) @binding(3) var texture_sampler: sampler;
 @group(1) @binding(0) var<uniform> directional_light: DirectionalLightUniforms;
-@group(1) @binding(1) var shadow_map: texture_depth_2d;
+@group(1) @binding(1) var shadow_map: texture_2d<f32>;
 @group(1) @binding(2) var<storage, read> point_lights: array<PointLight>;
 @group(1) @binding(3) var light_count_texture: texture_2d<u32>;
 @group(1) @binding(4) var<storage, read> tile_light_indices: array<TileLightIndices>;
@@ -189,22 +189,8 @@ fn fs_main(input: VertexOutput) -> FragmentOutput {
     let bias = 0.01;
     shadow_coords = vec3<f32>(clip_to_screen_space(shadow_coords.xy), shadow_coords.z + bias);
 
-    var visibility: f32;
-
-    switch (global_uniforms.shadow_quality) {
-        case 1u: {
-            let shadow_map_dimensions = textureDimensions(shadow_map);
-            visibility = get_soft_shadow(shadow_coords, shadow_map_dimensions);
-        }
-        default: {
-            visibility = textureSampleCompare(
-                      shadow_map,
-                      shadow_map_sampler,
-                      shadow_coords.xy,
-                      shadow_coords.z
-            );
-        }
-    }
+    let esm_value = textureSample(shadow_map, texture_sampler, shadow_coords.xy).r;
+    let visibility = saturate(esm_value * exp(-ESM_FACTOR * (1.0 - shadow_coords.z)));
 
     let directional_light_contribution = directional_light.color.rgb * light_percent * visibility;
 
@@ -316,52 +302,6 @@ fn rotateY(direction: vec3<f32>, angle: f32) -> vec3<f32> {
         s, 0.0, c
     );
     return rotation_matrix * direction;
-}
-
-fn get_soft_shadow(shadow_coords: vec3<f32>, shadow_map_dimensions: vec2<u32>) -> f32 {
-    var gaussian_offset: i32;
-    switch (shadow_map_dimensions.x) {
-        case 8192u: {
-            gaussian_offset = 8;
-        }
-        case 4096u: {
-            gaussian_offset = 4;
-        }
-        default: {
-            gaussian_offset = 2;
-        }
-    }
-
-    let texel_size = vec2<f32>(1.0) / vec2<f32>(shadow_map_dimensions);
-    let depth = shadow_coords.z;
-    var shadow: f32 = 0.0;
-    var total_weight: f32 = 0.0;
-
-    let gaussian_offset_pow2 = f32(gaussian_offset * gaussian_offset);
-    let sigma_squared = gaussian_offset_pow2 * 0.25;
-    let weight_factor = 1.0 / (2.0 * sigma_squared);
-
-    for (var y: i32 = -gaussian_offset; y <= gaussian_offset; y += 2) {
-        for (var x: i32 = -gaussian_offset; x <= gaussian_offset; x += 2) {
-            let offset = vec2<f32>(f32(x), f32(y)) * texel_size;
-
-            // Calculate Gaussian weight based on distance from center.
-            let distance_squared = f32(x * x + y * y);
-            let weight = exp(-distance_squared * weight_factor);
-
-            let samples = textureGatherCompare(
-                shadow_map,
-                shadow_map_sampler,
-                shadow_coords.xy + offset,
-                depth
-            );
-
-            shadow += (samples.x + samples.y + samples.z + samples.w) * weight;
-            total_weight += 4.0 * weight;
-        }
-    }
-
-    return shadow / total_weight;
 }
 
 fn linearToNonLinear(linear_depth: f32) -> f32 {

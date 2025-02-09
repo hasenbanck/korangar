@@ -1,4 +1,5 @@
 mod entity;
+mod filter;
 mod indicator;
 mod model;
 
@@ -8,20 +9,26 @@ use std::sync::OnceLock;
 use bytemuck::{Pod, Zeroable};
 use cgmath::{Matrix4, SquareMatrix};
 pub(crate) use entity::DirectionalShadowEntityDrawer;
+pub(crate) use filter::{DirectionalShadowFilterDrawData, DirectionalShadowFilterDrawer};
 pub(crate) use indicator::DirectionalShadowIndicatorDrawer;
 pub(crate) use model::DirectionalShadowModelDrawer;
 use wgpu::util::StagingBelt;
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType,
-    BufferBindingType, BufferUsages, CommandEncoder, Device, LoadOp, Operations, Queue, RenderPass, RenderPassDepthStencilAttachment,
-    RenderPassDescriptor, ShaderStages, StoreOp, TextureFormat,
+    BufferBindingType, BufferUsages, Color, CommandEncoder, Device, LoadOp, Operations, Queue, RenderPass, RenderPassColorAttachment,
+    RenderPassDepthStencilAttachment, RenderPassDescriptor, ShaderStages, StoreOp, TextureFormat,
 };
 
 use super::{BindGroupCount, ColorAttachmentCount, DepthAttachmentCount, RenderPassContext};
-use crate::graphics::{Buffer, GlobalContext, Prepare, RenderInstruction};
+use crate::graphics::{AttachmentTexture, Buffer, GlobalContext, Prepare, RenderInstruction};
 use crate::loaders::TextureLoader;
 
 const PASS_NAME: &str = "directional shadow render pass";
+
+pub(crate) struct DirectionalShadowRenderPassData<'a> {
+    pub(crate) target_texture: &'a AttachmentTexture,
+    pub(crate) clear_depth: bool,
+}
 
 #[derive(Copy, Clone, Default, Pod, Zeroable)]
 #[repr(C)]
@@ -37,13 +44,14 @@ pub(crate) struct DirectionalShadowRenderPassContext {
     uniforms_buffer: Buffer<PassUniforms>,
     bind_group: BindGroup,
     directional_shadow_texture_format: TextureFormat,
+    directional_shadow_depth_texture_format: TextureFormat,
     uniforms_data: PassUniforms,
 }
 
-impl RenderPassContext<{ BindGroupCount::Two }, { ColorAttachmentCount::None }, { DepthAttachmentCount::One }>
+impl RenderPassContext<{ BindGroupCount::Two }, { ColorAttachmentCount::One }, { DepthAttachmentCount::One }>
     for DirectionalShadowRenderPassContext
 {
-    type PassData<'data> = Option<()>;
+    type PassData<'data> = DirectionalShadowRenderPassData<'data>;
 
     fn new(device: &Device, _queue: &Queue, _texture_loader: &TextureLoader, global_context: &GlobalContext) -> Self {
         let uniforms_buffer = Buffer::with_capacity(
@@ -56,11 +64,13 @@ impl RenderPassContext<{ BindGroupCount::Two }, { ColorAttachmentCount::None }, 
         let bind_group = Self::create_bind_group(device, &uniforms_buffer);
 
         let directional_shadow_texture_format = global_context.directional_shadow_map_texture.get_format();
+        let directional_shadow_depth_texture_format = global_context.picker_depth_texture.get_format();
 
         Self {
             uniforms_buffer,
             bind_group,
             directional_shadow_texture_format,
+            directional_shadow_depth_texture_format,
             uniforms_data: Default::default(),
         }
     }
@@ -69,17 +79,27 @@ impl RenderPassContext<{ BindGroupCount::Two }, { ColorAttachmentCount::None }, 
         &mut self,
         encoder: &'encoder mut CommandEncoder,
         global_context: &GlobalContext,
-        _pass_data: Self::PassData<'_>,
+        pass_data: Self::PassData<'_>,
     ) -> RenderPass<'encoder> {
         let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some(PASS_NAME),
-            color_attachments: &[],
-            depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
-                view: global_context.directional_shadow_map_texture.get_texture_view(),
-                depth_ops: Some(Operations {
-                    load: LoadOp::Clear(0.0),
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view: pass_data.target_texture.get_texture_view(),
+                resolve_target: None,
+                ops: Operations {
+                    load: LoadOp::Clear(Color::BLACK),
                     store: StoreOp::Store,
-                }),
+                },
+            })],
+            depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
+                view: global_context.directional_shadow_map_depth_texture.get_texture_view(),
+                depth_ops: match pass_data.clear_depth {
+                    true => Some(Operations {
+                        load: LoadOp::Clear(0.0),
+                        store: StoreOp::Discard,
+                    }),
+                    false => None,
+                },
                 stencil_ops: None,
             }),
             timestamp_writes: None,
@@ -122,12 +142,12 @@ impl RenderPassContext<{ BindGroupCount::Two }, { ColorAttachmentCount::None }, 
         [GlobalContext::global_bind_group_layout(device), layout]
     }
 
-    fn color_attachment_formats(&self) -> [TextureFormat; 0] {
-        []
+    fn color_attachment_formats(&self) -> [TextureFormat; 1] {
+        [self.directional_shadow_texture_format]
     }
 
     fn depth_attachment_output_format(&self) -> [TextureFormat; 1] {
-        [self.directional_shadow_texture_format]
+        [self.directional_shadow_depth_texture_format]
     }
 }
 
@@ -148,13 +168,8 @@ impl Prepare for DirectionalShadowRenderPassContext {
     }
 
     fn upload(&mut self, device: &Device, staging_belt: &mut StagingBelt, command_encoder: &mut CommandEncoder) {
-        let recreated = self
-            .uniforms_buffer
+        self.uniforms_buffer
             .write(device, staging_belt, command_encoder, &[self.uniforms_data]);
-
-        if recreated {
-            self.bind_group = Self::create_bind_group(device, &self.uniforms_buffer);
-        }
     }
 }
 

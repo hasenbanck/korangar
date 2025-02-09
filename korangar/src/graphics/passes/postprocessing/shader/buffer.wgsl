@@ -16,7 +16,7 @@ const TILE_SIZE: u32 = 16;
 @group(0) @binding(1) var nearest_sampler: sampler;
 @group(1) @binding(0) var<uniform> debug_uniforms: DebugUniforms;
 @group(1) @binding(1) var picker_texture: texture_2d<u32>;
-@group(1) @binding(2) var directional_shadow_map: texture_depth_2d;
+@group(1) @binding(2) var directional_shadow_map: texture_2d<f32>;
 @group(1) @binding(3) var light_count_texture: texture_2d<u32>;
 @group(1) @binding(4) var point_shadow_maps: texture_depth_cube_array;
 @group(2) @binding(0) var font_map: texture_2d<f32>;
@@ -53,8 +53,8 @@ fn fs_main(
     if (debug_uniforms.show_directional_shadow_map != 0u) {
         var sample_position = clip_to_uv(fragment_position);
         sample_position.y = 1.0 - sample_position.y;
-        let depth = textureSample(directional_shadow_map, nearest_sampler, sample_position);
-        output_color += vec4<f32>(depth, depth, depth, 1.0);
+        let esm = textureSample(directional_shadow_map, nearest_sampler, sample_position);
+        output_color += vec4<f32>(esm.rgb, 1.0);
     }
 
     if (debug_uniforms.show_point_shadow_map != 0u) {

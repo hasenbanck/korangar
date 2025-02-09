@@ -15,7 +15,6 @@ struct GlobalUniforms {
     day_timer: f32,
     point_light_count: u32,
     enhanced_lighting: u32,
-    shadow_quality: u32,
 }
 
 struct DirectionalLightUniforms {

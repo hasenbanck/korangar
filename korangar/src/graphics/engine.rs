@@ -17,7 +17,7 @@ use winit::window::Window;
 
 use super::{
     AntiAliasingResource, Capabilities, FramePacer, FrameStage, GlobalContext, LimitFramerate, Msaa, Prepare, PresentModeInfo,
-    ScreenSpaceAntiAliasing, ShadowDetail, Ssaa, Surface, TextureCompression, TextureSamplerType, RENDER_TO_TEXTURE_FORMAT,
+    ScreenSpaceAntiAliasing, ShadowDetail, ShadowQuality, Ssaa, Surface, TextureCompression, TextureSamplerType, RENDER_TO_TEXTURE_FORMAT,
 };
 use crate::graphics::instruction::RenderInstruction;
 use crate::graphics::passes::*;
@@ -84,6 +84,7 @@ struct EngineContext {
     directional_shadow_model_drawer: DirectionalShadowModelDrawer,
     directional_shadow_entity_drawer: DirectionalShadowEntityDrawer,
     directional_shadow_indicator_drawer: DirectionalShadowIndicatorDrawer,
+    directional_shadow_filter_drawer: DirectionalShadowFilterDrawer,
     point_shadow_entity_drawer: PointShadowEntityDrawer,
     point_shadow_model_drawer: PointShadowModelDrawer,
     point_shadow_indicator_drawer: PointShadowIndicatorDrawer,
@@ -251,6 +252,13 @@ impl GraphicsEngine {
                             &global_context,
                             &directional_shadow_pass_context,
                         );
+                        let directional_shadow_filter_drawer = DirectionalShadowFilterDrawer::new(
+                            &self.capabilities,
+                            &self.device,
+                            &self.queue,
+                            &global_context,
+                            &directional_shadow_pass_context,
+                        );
                         let point_shadow_model_drawer = PointShadowModelDrawer::new(
                             &self.capabilities,
                             &self.device,
@@ -352,6 +360,7 @@ impl GraphicsEngine {
                         directional_shadow_model_drawer,
                         directional_shadow_entity_drawer,
                         directional_shadow_indicator_drawer,
+                        directional_shadow_filter_drawer,
                         point_shadow_model_drawer,
                         point_shadow_indicator_drawer,
                         point_shadow_entity_drawer,
@@ -925,26 +934,70 @@ impl GraphicsEngine {
 
             // Directional Shadow Caster Pass
             scope.spawn(|_| {
-                let mut render_pass = engine_context.directional_shadow_pass_context.create_pass(
-                    &mut directional_shadow_encoder,
-                    &engine_context.global_context,
-                    None,
-                );
+                {
+                    let mut render_pass = engine_context.directional_shadow_pass_context.create_pass(
+                        &mut directional_shadow_encoder,
+                        &engine_context.global_context,
+                        DirectionalShadowRenderPassData {
+                            target_texture: &engine_context.global_context.directional_shadow_map_texture,
+                            clear_depth: true,
+                        },
+                    );
 
-                let draw_data = ModelBatchDrawData {
-                    batches: instruction.directional_model_batches,
-                    instructions: instruction.directional_shadow_models,
-                    #[cfg(feature = "debug")]
-                    show_wireframe: false,
-                };
+                    let draw_data = ModelBatchDrawData {
+                        batches: instruction.directional_model_batches,
+                        instructions: instruction.directional_shadow_models,
+                        #[cfg(feature = "debug")]
+                        show_wireframe: false,
+                    };
 
-                engine_context.directional_shadow_model_drawer.draw(&mut render_pass, draw_data);
-                engine_context
-                    .directional_shadow_indicator_drawer
-                    .draw(&mut render_pass, instruction.indicator.as_ref());
-                engine_context
-                    .directional_shadow_entity_drawer
-                    .draw(&mut render_pass, instruction.directional_shadow_entities);
+                    engine_context.directional_shadow_model_drawer.draw(&mut render_pass, draw_data);
+                    engine_context
+                        .directional_shadow_indicator_drawer
+                        .draw(&mut render_pass, instruction.indicator.as_ref());
+                    engine_context
+                        .directional_shadow_entity_drawer
+                        .draw(&mut render_pass, instruction.directional_shadow_entities);
+                }
+
+                if instruction.uniforms.shadow_quality == ShadowQuality::Soft {
+                    {
+                        let mut render_pass = engine_context.directional_shadow_pass_context.create_pass(
+                            &mut directional_shadow_encoder,
+                            &engine_context.global_context,
+                            DirectionalShadowRenderPassData {
+                                target_texture: &engine_context.global_context.directional_shadow_filter_texture,
+
+                                clear_depth: false,
+                            },
+                        );
+
+                        engine_context
+                            .directional_shadow_filter_drawer
+                            .draw(&mut render_pass, DirectionalShadowFilterDrawData {
+                                source_texture: &engine_context.global_context.directional_shadow_map_texture,
+                                is_horizontal: true,
+                            });
+                    }
+
+                    {
+                        let mut render_pass = engine_context.directional_shadow_pass_context.create_pass(
+                            &mut directional_shadow_encoder,
+                            &engine_context.global_context,
+                            DirectionalShadowRenderPassData {
+                                target_texture: &engine_context.global_context.directional_shadow_map_texture,
+                                clear_depth: false,
+                            },
+                        );
+
+                        engine_context
+                            .directional_shadow_filter_drawer
+                            .draw(&mut render_pass, DirectionalShadowFilterDrawData {
+                                source_texture: &engine_context.global_context.directional_shadow_filter_texture,
+                                is_horizontal: false,
+                            });
+                    }
+                }
             });
 
             // Point Shadow Caster Pass
