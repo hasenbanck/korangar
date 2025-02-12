@@ -97,6 +97,8 @@ impl ModelLoader {
                 false,
             );
 
+            // TODO: NHA We need to do two passes and collect a mesh for each side, since in
+            //       case of smooth groups we need them separate.
             if face.two_sided != 0 {
                 Self::add_vertices(
                     &mut native_vertices,
@@ -108,6 +110,11 @@ impl ModelLoader {
                 );
             }
         }
+
+        // TODO: NHA The meshed are now collected and we can re-calculate the smooth
+        //       groups meshes.
+
+        // TODO: NHA Now we need to merge both sides of the mesh.
 
         if texture_transparency.iter().any(|&t| t) {
             Self::split_disconnected_meshes(&native_vertices, texture_transparency)
