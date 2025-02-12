@@ -113,6 +113,7 @@ pub fn ground_vertices(ground_data: &GroundData, water_level: f32) -> (Vec<Nativ
                         ground_surface.texture_index as i32,
                         ground_surface.color.into(),
                         0.0,
+                        [0; 3],
                     ));
                     native_ground_vertices.push(NativeModelVertex::new(
                         second_position,
@@ -121,6 +122,7 @@ pub fn ground_vertices(ground_data: &GroundData, water_level: f32) -> (Vec<Nativ
                         ground_surface.texture_index as i32,
                         color_right,
                         0.0,
+                        [0; 3],
                     ));
                     native_ground_vertices.push(NativeModelVertex::new(
                         third_position,
@@ -129,6 +131,7 @@ pub fn ground_vertices(ground_data: &GroundData, water_level: f32) -> (Vec<Nativ
                         ground_surface.texture_index as i32,
                         color_top_right,
                         0.0,
+                        [0; 3],
                     ));
 
                     native_ground_vertices.push(NativeModelVertex::new(
@@ -138,6 +141,7 @@ pub fn ground_vertices(ground_data: &GroundData, water_level: f32) -> (Vec<Nativ
                         ground_surface.texture_index as i32,
                         ground_surface.color.into(),
                         0.0,
+                        [0; 3],
                     ));
                     native_ground_vertices.push(NativeModelVertex::new(
                         third_position,
@@ -146,6 +150,7 @@ pub fn ground_vertices(ground_data: &GroundData, water_level: f32) -> (Vec<Nativ
                         ground_surface.texture_index as i32,
                         color_top_right,
                         0.0,
+                        [0; 3],
                     ));
                     native_ground_vertices.push(NativeModelVertex::new(
                         fourth_position,
@@ -154,6 +159,7 @@ pub fn ground_vertices(ground_data: &GroundData, water_level: f32) -> (Vec<Nativ
                         ground_surface.texture_index as i32,
                         color_top,
                         0.0,
+                        [0; 3],
                     ));
                 }
 
