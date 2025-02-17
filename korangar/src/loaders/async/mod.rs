@@ -1,7 +1,6 @@
 use std::cmp::PartialEq;
 use std::sync::{Arc, Mutex};
 
-use blake3::Hash;
 use hashbrown::HashMap;
 #[cfg(feature = "debug")]
 use korangar_debug::logging::print_debug;
@@ -15,7 +14,7 @@ use rayon::{ThreadPool, ThreadPoolBuilder};
 use crate::graphics::{Texture, TextureCompression};
 use crate::init_tls_rand;
 use crate::loaders::error::LoadError;
-use crate::loaders::{ActionLoader, AnimationLoader, ImageType, MapLoader, ModelLoader, SpriteLoader, TextureLoader};
+use crate::loaders::{ActionLoader, AnimationLoader, Cache, ImageType, MapLoader, ModelLoader, SpriteLoader, TextureLoader};
 #[cfg(feature = "debug")]
 use crate::threads;
 use crate::world::{AnimationData, EntityType, Map};
@@ -58,6 +57,7 @@ impl PartialEq for LoadStatus {
 }
 
 pub struct AsyncLoader {
+    cache: Arc<Cache>,
     action_loader: Arc<ActionLoader>,
     animation_loader: Arc<AnimationLoader>,
     map_loader: Arc<MapLoader>,
@@ -70,6 +70,7 @@ pub struct AsyncLoader {
 
 impl AsyncLoader {
     pub fn new(
+        cache: Arc<Cache>,
         action_loader: Arc<ActionLoader>,
         animation_loader: Arc<AnimationLoader>,
         map_loader: Arc<MapLoader>,
@@ -85,6 +86,7 @@ impl AsyncLoader {
             .unwrap();
 
         Self {
+            cache,
             action_loader,
             animation_loader,
             map_loader,
@@ -161,12 +163,12 @@ impl AsyncLoader {
 
     pub fn request_map_load(
         &self,
-        game_file_hash: Hash,
         texture_compression: TextureCompression,
         map_name: String,
         player_position: Option<TilePosition>,
         #[cfg(feature = "debug")] tile_texture_mapping: Arc<Vec<AtlasAllocation>>,
     ) {
+        let cache = self.cache.clone();
         let map_loader = self.map_loader.clone();
         let model_loader = self.model_loader.clone();
         let texture_loader = self.texture_loader.clone();
@@ -176,7 +178,7 @@ impl AsyncLoader {
             let _load_measurement = Profiler::start_measurement("map load");
 
             let map = map_loader.load(
-                game_file_hash,
+                &cache,
                 texture_compression,
                 map_name,
                 &model_loader,

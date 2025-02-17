@@ -41,7 +41,6 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
-use blake3::Hash;
 use cgmath::{Point3, Vector2, Vector3};
 #[cfg(feature = "debug")]
 use graphics::RenderSettings;
@@ -173,7 +172,6 @@ struct Client {
     sprite_loader: Arc<SpriteLoader>,
     texture_loader: Arc<TextureLoader>,
     library: Library,
-    game_file_hash: Hash,
 
     interface_renderer: InterfaceRenderer,
     bottom_interface_renderer: GameInterfaceRenderer,
@@ -381,7 +379,9 @@ impl Client {
 
             game_file_loader.load_archives_from_settings();
             game_file_loader.load_patched_lua_files();
+        });
 
+        time_phase!("calculate game file hash", {
             let game_file_hash = game_file_loader.calculate_hash();
             #[cfg(feature = "debug")]
             print_debug!("game file hash: {}", game_file_hash);
@@ -430,7 +430,10 @@ impl Client {
                 Library::new(&game_file_loader).unwrap()
             });
 
+            let cache = Arc::new(Cache::new(texture_loader.clone(), game_file_hash));
+
             let async_loader = Arc::new(AsyncLoader::new(
+                cache.clone(),
                 action_loader.clone(),
                 animation_loader.clone(),
                 map_loader.clone(),
@@ -559,7 +562,6 @@ impl Client {
 
             #[cfg(feature = "debug")]
             let (pathing_texture_mapping, pathing_texture) = TextureAtlasFactory::create_from_group(
-                game_file_hash,
                 texture_loader.clone(),
                 "pathing",
                 false,
@@ -569,7 +571,6 @@ impl Client {
 
             #[cfg(feature = "debug")]
             let (tile_texture_mapping, tile_texture) = TextureAtlasFactory::create_from_group(
-                game_file_hash,
                 texture_loader.clone(),
                 "tile",
                 false,
@@ -604,7 +605,7 @@ impl Client {
 
             let map = map_loader
                 .load(
-                    game_file_hash,
+                    &cache,
                     compression,
                     DEFAULT_MAP.to_string(),
                     &model_loader,
@@ -625,7 +626,6 @@ impl Client {
             sprite_loader,
             texture_loader,
             library,
-            game_file_hash,
             interface_renderer,
             bottom_interface_renderer,
             middle_interface_renderer,
@@ -910,7 +910,6 @@ impl Client {
                     self.interface.close_all_windows_except(&mut self.focus_state);
 
                     self.async_loader.request_map_load(
-                        self.game_file_hash,
                         self.graphics_engine
                             .check_texture_compression_requirements(*self.texture_compression.get()),
                         DEFAULT_MAP.to_string(),
@@ -1120,7 +1119,6 @@ impl Client {
                     self.entities.truncate(1);
 
                     self.async_loader.request_map_load(
-                        self.game_file_hash,
                         self.graphics_engine
                             .check_texture_compression_requirements(*self.texture_compression.get()),
                         map_name,
@@ -2500,7 +2498,6 @@ impl Client {
         if self.texture_compression.consume_changed() {
             if let Some(map) = self.map.as_ref() {
                 self.async_loader.request_map_load(
-                    self.game_file_hash,
                     self.graphics_engine
                         .check_texture_compression_requirements(*self.texture_compression.get()),
                     map.get_resource_file().to_string(),

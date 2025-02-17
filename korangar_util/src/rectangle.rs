@@ -1,8 +1,8 @@
 use cgmath::{BaseNum, Point2, Vector2};
-use serde::{Deserialize, Serialize};
+use ragnarok_bytes::{ByteReader, ConversionResult, ConversionResultExt, FromBytes, ToBytes};
 
 /// Represents a rectangle in 2D space.
-#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
+#[derive(Copy, Clone, Debug)]
 pub struct Rectangle<N> {
     /// The minimal point of the rectangle (should be top left).
     pub min: Point2<N>,
@@ -51,5 +51,22 @@ impl<N: BaseNum> PartialEq for Rectangle<N> {
 impl<N> From<Rectangle<N>> for [N; 4] {
     fn from(value: Rectangle<N>) -> Self {
         [value.min.x, value.min.y, value.max.x, value.max.y]
+    }
+}
+
+impl<T: FromBytes + BaseNum> FromBytes for Rectangle<T> {
+    fn from_bytes<Meta>(byte_reader: &mut ByteReader<Meta>) -> ConversionResult<Self> {
+        let min = Point2::<T>::from_bytes(byte_reader).trace::<Self>()?;
+        let max = Point2::<T>::from_bytes(byte_reader).trace::<Self>()?;
+        Ok(Rectangle::new(min, max))
+    }
+}
+
+impl<T: ToBytes + BaseNum> ToBytes for Rectangle<T> {
+    fn to_bytes(&self) -> ConversionResult<Vec<u8>> {
+        let mut bytes = self.min.to_bytes().trace::<Self>()?;
+        bytes.append(&mut self.max.to_bytes().trace::<Self>()?);
+
+        Ok(bytes)
     }
 }

@@ -1,3 +1,4 @@
+use cgmath::Point2;
 #[cfg(feature = "cgmath")]
 use cgmath::{Matrix3, Point3, Quaternion, Vector2, Vector3, Vector4};
 
@@ -121,6 +122,16 @@ impl<T: FromBytes> FromBytes for Vector4<T> {
         let fourth = T::from_bytes(byte_reader).trace::<Self>()?;
 
         Ok(Vector4::new(first, second, third, fourth))
+    }
+}
+
+#[cfg(feature = "cgmath")]
+impl<T: FromBytes> FromBytes for Point2<T> {
+    fn from_bytes<Meta>(byte_reader: &mut ByteReader<Meta>) -> ConversionResult<Self> {
+        let first = T::from_bytes(byte_reader).trace::<Self>()?;
+        let second = T::from_bytes(byte_reader).trace::<Self>()?;
+
+        Ok(Point2::new(first, second))
     }
 }
 

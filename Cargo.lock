@@ -1717,8 +1717,8 @@ dependencies = [
  "hashbrown",
  "image",
  "korangar_interface",
+ "ragnarok_bytes",
  "rand_aes",
- "serde",
 ]
 
 [[package]]

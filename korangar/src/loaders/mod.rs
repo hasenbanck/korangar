@@ -3,6 +3,7 @@ mod animation;
 mod archive;
 
 mod r#async;
+mod cache;
 mod effect;
 pub mod error;
 mod font;
@@ -16,6 +17,7 @@ mod texture;
 
 pub use self::action::*;
 pub use self::animation::*;
+pub use self::cache::Cache;
 pub use self::effect::EffectLoader;
 pub use self::font::{FontLoader, FontSize, GlyphInstruction, Scaling};
 pub use self::gamefile::*;

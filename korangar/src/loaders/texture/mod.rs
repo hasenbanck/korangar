@@ -1,12 +1,10 @@
-use std::fs;
 use std::io::Cursor;
 use std::num::{NonZeroU32, NonZeroUsize};
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use blake3::Hash;
 use block_compression::{CompressionVariant, GpuBlockCompressor};
 use hashbrown::HashMap;
+use image::codecs::tga::TgaEncoder;
 use image::{GrayImage, ImageBuffer, ImageFormat, ImageReader, Rgba, RgbaImage};
 #[cfg(feature = "debug")]
 use korangar_debug::logging::{print_debug, Colorize, Timer};
@@ -14,7 +12,7 @@ use korangar_util::color::contains_transparent_pixel;
 use korangar_util::container::{SecondarySimpleSlab, SimpleCache, SimpleKey};
 use korangar_util::texture_atlas::{AllocationId, AtlasAllocation, OfflineTextureAtlas};
 use korangar_util::FileLoader;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use ragnarok_bytes::{ByteReader, ConversionResult, ConversionResultExt, FromBytes, ToBytes};
 use wgpu::{
     BufferDescriptor, BufferUsages, CommandEncoderDescriptor, ComputePassDescriptor, Device, Extent3d, Origin3d, Queue,
     TexelCopyBufferInfo, TexelCopyBufferLayout, TexelCopyTextureInfo, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat,
@@ -22,8 +20,9 @@ use wgpu::{
 };
 
 use super::error::LoadError;
-use super::{FALLBACK_BMP_FILE, FALLBACK_JPEG_FILE, FALLBACK_PNG_FILE, FALLBACK_TGA_FILE, MIP_LEVELS};
+use super::{Cache, FALLBACK_BMP_FILE, FALLBACK_JPEG_FILE, FALLBACK_PNG_FILE, FALLBACK_TGA_FILE, MIP_LEVELS};
 use crate::graphics::{Lanczos3Drawer, MipMapRenderPassContext, Texture, TextureCompression};
+use crate::loaders::cache::{CachedTextureAtlas, CachedTextureAtlasImage};
 use crate::loaders::GameFileLoader;
 
 const MAX_CACHE_COUNT: u32 = 512;
@@ -588,7 +587,6 @@ fn premultiply_alpha(image_buffer: RgbaImage) -> ImageBuffer<Rgba<u8>, Vec<u8>> 
 }
 
 pub struct TextureAtlasFactory {
-    game_file_hash: Hash,
     name: String,
     texture_loader: Arc<TextureLoader>,
     texture_atlas: Atlas,
@@ -599,80 +597,45 @@ pub struct TextureAtlasFactory {
     texture_compression: TextureCompression,
 }
 
-enum Atlas {
-    Offline(OfflineTextureAtlas),
-    Cache {
-        image: RgbaImage,
-        allocations: SecondarySimpleSlab<AllocationId, AtlasAllocation>,
-    },
-}
-
 #[derive(Copy, Clone)]
 pub struct TextureAtlasEntry {
     pub allocation_id: AllocationId,
     pub transparent: bool,
 }
 
-impl<'de> Deserialize<'de> for TextureAtlasEntry {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct Helper {
-            allocation_id: u32,
-            transparent: bool,
-        }
+impl FromBytes for TextureAtlasEntry {
+    fn from_bytes<Meta>(byte_reader: &mut ByteReader<Meta>) -> ConversionResult<Self> {
+        let allocation_id = u32::from_bytes(byte_reader).trace::<Self>()?;
+        let transparent = u32::from_bytes(byte_reader).trace::<Self>()?;
 
-        let helper = Helper::deserialize(deserializer)?;
-
-        Ok(Self {
-            allocation_id: AllocationId::new(helper.allocation_id),
-            transparent: helper.transparent,
+        Ok(TextureAtlasEntry {
+            allocation_id: AllocationId::new(allocation_id),
+            transparent: transparent != 0,
         })
     }
 }
 
-impl Serialize for TextureAtlasEntry {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        use serde::ser::SerializeStruct;
+impl ToBytes for TextureAtlasEntry {
+    fn to_bytes(&self) -> ConversionResult<Vec<u8>> {
+        let key: u32 = self.allocation_id.key();
+        let transparent = u32::from(self.transparent);
+        let mut bytes = key.to_bytes().trace::<Self>()?;
+        bytes.append(&mut transparent.to_bytes().trace::<Self>()?);
 
-        let mut state = serializer.serialize_struct("TextureAtlasEntry", 2)?;
-        state.serialize_field("allocation_id", &self.allocation_id.key())?;
-        state.serialize_field("transparent", &self.transparent)?;
-        state.end()
+        Ok(bytes)
     }
 }
 
+enum Atlas {
+    Offline(OfflineTextureAtlas),
+    Cache {
+        atlas_image: CachedTextureAtlasImage,
+        allocations: SecondarySimpleSlab<AllocationId, AtlasAllocation>,
+    },
+}
+
 impl TextureAtlasFactory {
-    #[cfg(feature = "debug")]
-    pub fn create_from_group(
-        game_file_hash: Hash,
-        texture_loader: Arc<TextureLoader>,
-        name: impl Into<String>,
-        add_padding: bool,
-        paths: &[&str],
-        texture_compression: TextureCompression,
-    ) -> (Vec<AtlasAllocation>, Arc<Texture>) {
-        let mut factory = Self::new_with_cache(game_file_hash, texture_loader, name, add_padding, false, texture_compression);
-
-        let mut ids: Vec<TextureAtlasEntry> = paths.iter().map(|path| factory.register(path)).collect();
-        factory.build_atlas();
-
-        let mapping = ids
-            .drain(..)
-            .map(|entry| factory.get_allocation(entry.allocation_id).unwrap())
-            .collect();
-        let texture = factory.upload_texture_atlas_texture();
-
-        (mapping, texture)
-    }
-
-    pub fn new(
-        game_file_hash: Hash,
+    fn new(
         texture_loader: Arc<TextureLoader>,
         name: impl Into<String>,
         add_padding: bool,
@@ -682,7 +645,6 @@ impl TextureAtlasFactory {
         let mip_level_count = if create_mip_map { NonZeroU32::new(MIP_LEVELS) } else { None };
 
         Self {
-            game_file_hash,
             name: name.into(),
             texture_loader,
             texture_atlas: Atlas::Offline(OfflineTextureAtlas::new(add_padding, mip_level_count)),
@@ -694,8 +656,31 @@ impl TextureAtlasFactory {
         }
     }
 
+    #[cfg(feature = "debug")]
+    pub fn create_from_group(
+        texture_loader: Arc<TextureLoader>,
+        name: impl Into<String>,
+        add_padding: bool,
+        paths: &[&str],
+        texture_compression: TextureCompression,
+    ) -> (Vec<AtlasAllocation>, Arc<Texture>) {
+        let mut factory = Self::new(texture_loader, name, add_padding, false, texture_compression);
+
+        let mut ids: Vec<TextureAtlasEntry> = paths.iter().map(|path| factory.register(path)).collect();
+        factory.build_atlas();
+
+        let mapping = ids
+            .drain(..)
+            .map(|entry| factory.get_allocation(entry.allocation_id).unwrap())
+            .collect();
+
+        let texture = factory.upload_texture_atlas_texture();
+
+        (mapping, texture)
+    }
+
     pub fn new_with_cache(
-        game_file_hash: Hash,
+        cache: &Cache,
         texture_loader: Arc<TextureLoader>,
         name: impl Into<String>,
         add_padding: bool,
@@ -704,13 +689,12 @@ impl TextureAtlasFactory {
     ) -> Self {
         let name = name.into();
 
-        if let Some((cache, image)) = Self::try_load_from_cache(game_file_hash, &name, add_padding, create_mip_map) {
+        if let Some((cache, atlas_image)) = cache.load_texture_atlas(&name, add_padding, create_mip_map) {
             Self {
-                game_file_hash,
                 name,
                 texture_loader,
                 texture_atlas: Atlas::Cache {
-                    image,
+                    atlas_image,
                     allocations: cache.allocations,
                 },
                 lookup: cache.lookup,
@@ -720,14 +704,13 @@ impl TextureAtlasFactory {
                 texture_compression,
             }
         } else {
-            Self::new(
-                game_file_hash,
-                texture_loader,
-                name,
-                add_padding,
-                create_mip_map,
-                texture_compression,
-            )
+            #[cfg(feature = "debug")]
+            print_debug!(
+                "could not load cached texture atlas for `{}`. Will create new texture atlas instead",
+                name
+            );
+
+            Self::new(texture_loader, name, add_padding, create_mip_map, texture_compression)
         }
     }
 
@@ -753,7 +736,7 @@ impl TextureAtlasFactory {
 
                 entry
             }
-            Atlas::Cache { .. } => self.lookup.get(path).copied().unwrap(),
+            Atlas::Cache { .. } => self.lookup.get(path).copied().expect("can't find cached texture path"),
         }
     }
 
@@ -770,67 +753,41 @@ impl TextureAtlasFactory {
         }
     }
 
-    fn get_cache_base_path(name: &str, add_padding: bool, create_mip_map: bool) -> String {
-        format!(
-            "cache/atlas_{}_{}_{}",
-            name,
-            if add_padding { "padded" } else { "unpadded" },
-            if create_mip_map { "mip" } else { "nomip" }
-        )
-    }
-
-    fn try_load_from_cache(
-        game_file_hash: Hash,
-        name: &str,
-        add_padding: bool,
-        create_mip_map: bool,
-    ) -> Option<(TextureAtlasCache, RgbaImage)> {
-        let base_path = Self::get_cache_base_path(name, add_padding, create_mip_map);
-        let meta_path = format!("{}.ron", base_path);
-        let image_path = format!("{}.tga", base_path);
-
-        let cache_content = fs::read_to_string(&meta_path).ok()?;
-        let cache: TextureAtlasCache = ron::from_str(&cache_content).ok()?;
-
-        if cache.game_file_hash != *game_file_hash.as_bytes() {
-            return None;
-        }
-
-        let image = image::open(&image_path).ok()?.into_rgba8();
-
-        Some((cache, image))
-    }
-
-    fn save_to_cache(&self) {
-        if let Atlas::Offline(atlas) = &self.texture_atlas {
-            let base_path = Self::get_cache_base_path(&self.name, self.add_padding, self.create_mip_map);
-            let meta_path = format!("{}.ron", base_path);
-            let image_path = format!("{}.tga", base_path);
-
-            if let Some(parent) = Path::new(&meta_path).parent() {
-                fs::create_dir_all(parent).unwrap();
-            }
-
-            let cache = TextureAtlasCache {
-                game_file_hash: *self.game_file_hash.as_bytes(),
-                lookup: self.lookup.clone(),
+    pub fn save_to_cache(self, cache: &Cache) {
+        if let Atlas::Offline(atlas) = self.texture_atlas {
+            let cached_texture_atlas = CachedTextureAtlas {
+                lookup: self.lookup,
                 allocations: atlas.get_allocations(),
             };
-            let serialized = ron::to_string(&cache).ok().unwrap();
-            fs::write(meta_path, serialized).unwrap();
 
-            atlas.save_atlas(&image_path).unwrap();
+            let image = atlas.get_atlas();
+
+            let mut uncompressed_data = Vec::new();
+            image
+                .write_with_encoder(TgaEncoder::new(&mut uncompressed_data))
+                .expect("can't encode texture atlas as TGA file");
+
+            // TODO: NHA Compress as BC7
+
+            let cached_texture_atlas_image = CachedTextureAtlasImage {
+                width: image.width(),
+                height: image.height(),
+                mipmaps_count: MIP_LEVELS,
+                uncompressed_data,
+                compressed_data: vec![],
+            };
+
+            cache.save_texture_atlas(
+                &self.name,
+                self.add_padding,
+                self.create_mip_map,
+                cached_texture_atlas,
+                cached_texture_atlas_image,
+            )
         }
     }
 
     pub fn upload_texture_atlas_texture(self) -> Arc<Texture> {
-        self.save_to_cache();
-
-        let atlas = match self.texture_atlas {
-            Atlas::Offline(offline) => offline.get_atlas(),
-            Atlas::Cache { image, .. } => image,
-        };
-
         let name = format!("{} texture atlas", self.name);
 
         let mips_level = match self.create_mip_map {
@@ -838,14 +795,18 @@ impl TextureAtlasFactory {
             false => 1,
         };
 
-        self.texture_loader
-            .create_with_mipmaps(&name, self.texture_compression, mips_level, self.transparent, atlas)
+        match self.texture_atlas {
+            Atlas::Offline(offline) => self.texture_loader.create_with_mipmaps(
+                &name,
+                self.texture_compression,
+                mips_level,
+                self.transparent,
+                offline.get_atlas(),
+            ),
+            Atlas::Cache { atlas_image, .. } => {
+                // TODO: NHA create the BC7 texture from the data.
+                todo!()
+            }
+        }
     }
-}
-
-#[derive(Serialize, Deserialize)]
-struct TextureAtlasCache {
-    game_file_hash: [u8; 32],
-    lookup: HashMap<String, TextureAtlasEntry>,
-    allocations: SecondarySimpleSlab<AllocationId, AtlasAllocation>,
 }
