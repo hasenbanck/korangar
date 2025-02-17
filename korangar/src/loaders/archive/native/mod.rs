@@ -4,13 +4,14 @@ mod mixcrypt;
 
 use std::collections::HashMap;
 use std::fs::File;
-use std::hash::Hash;
 use std::io::{Read, Seek, SeekFrom};
+use std::ops::Deref;
 use std::path::Path;
 use std::sync::Mutex;
 
-use crc32fast::Hasher;
+use blake3::Hasher;
 use flate2::bufread::ZlibDecoder;
+use korangar_debug::logging::print_debug;
 #[cfg(feature = "debug")]
 use korangar_debug::logging::{Colorize, Timer};
 use ragnarok_bytes::{ByteReader, FixedByteSize, FromBytes};
@@ -28,11 +29,10 @@ type FileTable = HashMap<String, FileTableRow>;
 pub struct NativeArchive {
     file_table: FileTable,
     file_handle: Mutex<File>,
-    hash_content: bool,
 }
 
 impl Archive for NativeArchive {
-    fn from_path(path: &Path, hash_content: bool) -> Self {
+    fn from_path(path: &Path) -> Self {
         #[cfg(feature = "debug")]
         let timer = Timer::new_dynamic(format!("load game data from {}", path.display().magenta()));
         let mut file = File::open(path).unwrap();
@@ -76,7 +76,6 @@ impl Archive for NativeArchive {
         Self {
             file_table: assets,
             file_handle: Mutex::new(file),
-            hash_content,
         }
     }
 
@@ -117,8 +116,10 @@ impl Archive for NativeArchive {
     }
 
     fn hash(&self, hasher: &mut Hasher) {
-        if self.hash_content {
-            self.file_table.values().for_each(|file| file.hash(hasher));
+        let file = self.file_handle.lock().unwrap();
+        if let Err(_err) = hasher.update_reader(file.deref()) {
+            #[cfg(feature = "debug")]
+            print_debug!("Can't hash native archive: {:?}", _err);
         }
     }
 }

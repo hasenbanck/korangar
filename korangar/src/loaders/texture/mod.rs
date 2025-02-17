@@ -4,6 +4,7 @@ use std::num::{NonZeroU32, NonZeroUsize};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use blake3::Hash;
 use block_compression::{CompressionVariant, GpuBlockCompressor};
 use hashbrown::HashMap;
 use image::{GrayImage, ImageBuffer, ImageFormat, ImageReader, Rgba, RgbaImage};
@@ -587,7 +588,7 @@ fn premultiply_alpha(image_buffer: RgbaImage) -> ImageBuffer<Rgba<u8>, Vec<u8>> 
 }
 
 pub struct TextureAtlasFactory {
-    game_file_crc32: u32,
+    game_file_hash: Hash,
     name: String,
     texture_loader: Arc<TextureLoader>,
     texture_atlas: Atlas,
@@ -649,14 +650,14 @@ impl Serialize for TextureAtlasEntry {
 impl TextureAtlasFactory {
     #[cfg(feature = "debug")]
     pub fn create_from_group(
-        game_file_crc32: u32,
+        game_file_hash: Hash,
         texture_loader: Arc<TextureLoader>,
         name: impl Into<String>,
         add_padding: bool,
         paths: &[&str],
         texture_compression: TextureCompression,
     ) -> (Vec<AtlasAllocation>, Arc<Texture>) {
-        let mut factory = Self::new_with_cache(game_file_crc32, texture_loader, name, add_padding, false, texture_compression);
+        let mut factory = Self::new_with_cache(game_file_hash, texture_loader, name, add_padding, false, texture_compression);
 
         let mut ids: Vec<TextureAtlasEntry> = paths.iter().map(|path| factory.register(path)).collect();
         factory.build_atlas();
@@ -671,7 +672,7 @@ impl TextureAtlasFactory {
     }
 
     pub fn new(
-        game_file_crc32: u32,
+        game_file_hash: Hash,
         texture_loader: Arc<TextureLoader>,
         name: impl Into<String>,
         add_padding: bool,
@@ -681,7 +682,7 @@ impl TextureAtlasFactory {
         let mip_level_count = if create_mip_map { NonZeroU32::new(MIP_LEVELS) } else { None };
 
         Self {
-            game_file_crc32,
+            game_file_hash,
             name: name.into(),
             texture_loader,
             texture_atlas: Atlas::Offline(OfflineTextureAtlas::new(add_padding, mip_level_count)),
@@ -694,7 +695,7 @@ impl TextureAtlasFactory {
     }
 
     pub fn new_with_cache(
-        game_file_crc32: u32,
+        game_file_hash: Hash,
         texture_loader: Arc<TextureLoader>,
         name: impl Into<String>,
         add_padding: bool,
@@ -703,9 +704,9 @@ impl TextureAtlasFactory {
     ) -> Self {
         let name = name.into();
 
-        if let Some((cache, image)) = Self::try_load_from_cache(game_file_crc32, &name, add_padding, create_mip_map) {
+        if let Some((cache, image)) = Self::try_load_from_cache(game_file_hash, &name, add_padding, create_mip_map) {
             Self {
-                game_file_crc32,
+                game_file_hash,
                 name,
                 texture_loader,
                 texture_atlas: Atlas::Cache {
@@ -720,7 +721,7 @@ impl TextureAtlasFactory {
             }
         } else {
             Self::new(
-                game_file_crc32,
+                game_file_hash,
                 texture_loader,
                 name,
                 add_padding,
@@ -779,7 +780,7 @@ impl TextureAtlasFactory {
     }
 
     fn try_load_from_cache(
-        game_file_crc32: u32,
+        game_file_hash: Hash,
         name: &str,
         add_padding: bool,
         create_mip_map: bool,
@@ -791,7 +792,7 @@ impl TextureAtlasFactory {
         let cache_content = fs::read_to_string(&meta_path).ok()?;
         let cache: TextureAtlasCache = ron::from_str(&cache_content).ok()?;
 
-        if cache.game_file_crc32 != game_file_crc32 {
+        if cache.game_file_hash != *game_file_hash.as_bytes() {
             return None;
         }
 
@@ -811,7 +812,7 @@ impl TextureAtlasFactory {
             }
 
             let cache = TextureAtlasCache {
-                game_file_crc32: self.game_file_crc32,
+                game_file_hash: *self.game_file_hash.as_bytes(),
                 lookup: self.lookup.clone(),
                 allocations: atlas.get_allocations(),
             };
@@ -844,7 +845,7 @@ impl TextureAtlasFactory {
 
 #[derive(Serialize, Deserialize)]
 struct TextureAtlasCache {
-    game_file_crc32: u32,
+    game_file_hash: [u8; 32],
     lookup: HashMap<String, TextureAtlasEntry>,
     allocations: SecondarySimpleSlab<AllocationId, AtlasAllocation>,
 }

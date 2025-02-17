@@ -7,6 +7,7 @@ use core::panic;
 use std::path::Path;
 use std::sync::RwLock;
 
+use blake3::Hash;
 #[cfg(feature = "debug")]
 use korangar_debug::logging::{print_debug, Colorize, Timer};
 use korangar_util::{FileLoader, FileNotFoundError};
@@ -21,6 +22,11 @@ const LUA_GRF_FILE_NAME: &str = "lua_files/";
 #[cfg(not(feature = "patched_as_folder"))]
 const LUA_GRF_FILE_NAME: &str = "lua_files.grf";
 
+struct LoaderArchive {
+    archive: Box<dyn Archive>,
+    is_game_archive: bool,
+}
+
 /// Type implementing the game file loader.
 ///
 /// Currently, there are two types implementing
@@ -29,7 +35,7 @@ const LUA_GRF_FILE_NAME: &str = "lua_files.grf";
 /// - [`FolderArchive`] - Retrieve assets from an OS folder.
 #[derive(Default)]
 pub struct GameFileLoader {
-    archives: RwLock<Vec<Box<dyn Archive>>>,
+    archives: RwLock<Vec<LoaderArchive>>,
 }
 
 impl FileLoader for GameFileLoader {
@@ -39,14 +45,14 @@ impl FileLoader for GameFileLoader {
             .read()
             .unwrap()
             .iter()
-            .find_map(|archive| archive.get_file_by_path(&lowercase_path))
+            .find_map(|archive| archive.archive.get_file_by_path(&lowercase_path))
             .ok_or_else(|| FileNotFoundError::new(path.to_owned()))
     }
 }
 
 impl GameFileLoader {
-    fn add_archive(&self, game_archive: Box<dyn Archive>) {
-        self.archives.write().unwrap().insert(0, game_archive);
+    fn add_archive(&self, archive: Box<dyn Archive>, is_game_archive: bool) {
+        self.archives.write().unwrap().insert(0, LoaderArchive { archive, is_game_archive });
     }
 
     fn get_archive_type_by_path(path: &Path) -> ArchiveType {
@@ -61,12 +67,12 @@ impl GameFileLoader {
         }
     }
 
-    fn load_archive_from_path(path: &str, should_hash: bool) -> Box<dyn Archive> {
+    fn load_archive_from_path(path: &str) -> Box<dyn Archive> {
         let path = Path::new(path);
 
         match GameFileLoader::get_archive_type_by_path(path) {
-            ArchiveType::Folder => Box::new(FolderArchive::from_path(path, should_hash)),
-            ArchiveType::Native => Box::new(NativeArchive::from_path(path, should_hash)),
+            ArchiveType::Folder => Box::new(FolderArchive::from_path(path)),
+            ArchiveType::Native => Box::new(NativeArchive::from_path(path)),
         }
     }
 
@@ -77,21 +83,23 @@ impl GameFileLoader {
         let game_archive_list = GameArchiveList::load();
 
         game_archive_list.archives.iter().for_each(|path| {
-            let game_archive = Self::load_archive_from_path(path, true);
-            self.add_archive(game_archive);
+            let game_archive = Self::load_archive_from_path(path);
+            self.add_archive(game_archive, true);
         });
 
         #[cfg(feature = "debug")]
         timer.stop();
     }
 
-    pub fn calculate_crc32(&self) -> u32 {
-        // TODO: NHA this always creates a different hash! Maybe we should also move
-        //       this into the "load_archives_from_settings" and create in on load?
-        let mut hasher = crc32fast::Hasher::new();
-        self.archives.read().unwrap().iter().for_each(|archive| archive.hash(&mut hasher));
-        hasher.finalize();
-        0
+    pub fn calculate_hash(&self) -> Hash {
+        let mut hasher = blake3::Hasher::new();
+        self.archives
+            .read()
+            .unwrap()
+            .iter()
+            .filter(|archive| archive.is_game_archive)
+            .for_each(|archive| archive.archive.hash(&mut hasher));
+        hasher.finalize()
     }
 
     pub fn remove_patched_lua_files(&self) {
@@ -109,8 +117,8 @@ impl GameFileLoader {
             self.patch_lua_files();
         }
 
-        let lua_archive = Self::load_archive_from_path(LUA_GRF_FILE_NAME, false);
-        self.add_archive(lua_archive);
+        let lua_archive = Self::load_archive_from_path(LUA_GRF_FILE_NAME);
+        self.add_archive(lua_archive, false);
     }
 
     fn patch_lua_files(&self) {
@@ -123,11 +131,11 @@ impl GameFileLoader {
             .read()
             .unwrap()
             .iter()
-            .for_each(|archive| archive.get_files_with_extension(&mut lua_files, LUA_BYTECODE_EXTENSION));
+            .for_each(|archive| archive.archive.get_files_with_extension(&mut lua_files, LUA_BYTECODE_EXTENSION));
 
         let path = Path::new(LUA_GRF_FILE_NAME);
         let mut lua_archive: Box<dyn Writable> = match GameFileLoader::get_archive_type_by_path(path) {
-            ArchiveType::Folder => Box::new(FolderArchive::from_path(path, false)),
+            ArchiveType::Folder => Box::new(FolderArchive::from_path(path)),
             ArchiveType::Native => Box::new(NativeArchiveBuilder::from_path(path)),
         };
 

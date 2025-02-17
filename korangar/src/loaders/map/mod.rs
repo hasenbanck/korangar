@@ -2,6 +2,7 @@ mod vertices;
 
 use std::sync::Arc;
 
+use blake3::Hash;
 use bytemuck::Pod;
 use cgmath::{Array, Point2, Vector3};
 use derive_new::new;
@@ -57,7 +58,7 @@ pub struct MapLoader {
 impl MapLoader {
     pub fn load(
         &self,
-        game_file_crc32: u32,
+        game_file_hash: Hash,
         texture_compression: TextureCompression,
         resource_file: String,
         model_loader: &ModelLoader,
@@ -67,7 +68,8 @@ impl MapLoader {
         #[cfg(feature = "debug")]
         let timer = Timer::new_dynamic(format!("load map from {}", &resource_file));
 
-        let mut texture_atlas_factory = TextureAtlasFactory::new(game_file_crc32, texture_loader.clone(), "map", true, true, texture_compression);
+        let mut texture_atlas_factory =
+            TextureAtlasFactory::new(game_file_hash, texture_loader.clone(), "map", true, true, texture_compression);
         let mut deferred_vertex_generation: Vec<DeferredVertexGeneration> = Vec::new();
 
         let map_file_name = format!("data\\{}.rsw", resource_file);

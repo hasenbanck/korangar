@@ -1,10 +1,11 @@
 //! An OS folder containing game assets.
 use std::collections::HashMap;
 use std::fs;
-use std::hash::Hash;
+use std::fs::File;
 use std::path::{Path, PathBuf};
 
-use crc32fast::Hasher;
+use blake3::Hasher;
+use korangar_debug::logging::print_debug;
 use walkdir::WalkDir;
 
 use super::{Archive, Writable};
@@ -20,7 +21,6 @@ pub struct FolderArchive {
     /// "texture\\data\\angel.str" -> texture/data/Angel.str
     /// ```
     file_mapping: HashMap<String, PathBuf>,
-    hash_content: bool,
 }
 
 impl FolderArchive {
@@ -54,15 +54,11 @@ impl FolderArchive {
 }
 
 impl Archive for FolderArchive {
-    fn from_path(path: &Path, hash_content: bool) -> Self {
+    fn from_path(path: &Path) -> Self {
         let folder_path = PathBuf::from(path);
         let file_mapping = Self::load_mapping(&folder_path);
 
-        Self {
-            folder_path,
-            file_mapping,
-            hash_content,
-        }
+        Self { folder_path, file_mapping }
     }
 
     fn get_file_by_path(&self, asset_path: &str) -> Option<Vec<u8>> {
@@ -76,9 +72,20 @@ impl Archive for FolderArchive {
     }
 
     fn hash(&self, hasher: &mut Hasher) {
-        if self.hash_content {
-            self.file_mapping.values().for_each(|file| file.hash(hasher));
-        }
+        let mut files: Vec<PathBuf> = self.file_mapping.values().cloned().collect();
+        files.sort();
+        files.iter().for_each(|file_path| match File::open(file_path) {
+            Ok(file) => {
+                if let Err(_err) = hasher.update_reader(&file) {
+                    #[cfg(feature = "debug")]
+                    print_debug!("Can't hash archive file `{:?}`: {:?}", file_path, _err);
+                }
+            }
+            Err(_err) => {
+                #[cfg(feature = "debug")]
+                print_debug!("Can't open archive file `{:?}`: {:?}", file_path, _err);
+            }
+        });
     }
 }
 
