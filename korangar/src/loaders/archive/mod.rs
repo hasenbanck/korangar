@@ -4,7 +4,7 @@ pub mod native;
 use std::path::Path;
 
 pub trait Archive: Send + Sync {
-    fn from_path(path: &Path) -> Self
+    fn from_path(path: &Path, hash_content: bool) -> Self
     where
         Self: Sized;
 
@@ -13,6 +13,10 @@ pub trait Archive: Send + Sync {
 
     /// Get a list of all files with a given extension.
     fn get_files_with_extension(&self, files: &mut Vec<String>, extension: &str);
+
+    /// Hashes the archive with the given hasher. File content doesn't need to
+    /// be hashed.
+    fn hash(&self, hasher: &mut crc32fast::Hasher);
 }
 
 pub enum ArchiveType {

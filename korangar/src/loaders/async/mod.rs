@@ -160,6 +160,7 @@ impl AsyncLoader {
 
     pub fn request_map_load(
         &self,
+        game_file_crc32: u32,
         texture_compression: TextureCompression,
         map_name: String,
         player_position: Option<TilePosition>,
@@ -174,6 +175,7 @@ impl AsyncLoader {
             let _load_measurement = Profiler::start_measurement("map load");
 
             let map = map_loader.load(
+                game_file_crc32,
                 texture_compression,
                 map_name,
                 &model_loader,

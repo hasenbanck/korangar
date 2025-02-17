@@ -11,10 +11,11 @@ bytemuck = { workspace = true, features = ["derive", "extern_crate_std", "min_co
 cgmath = { workspace = true, features = ["mint", "serde"] }
 chrono = { workspace = true }
 cosmic-text = { workspace = true, features = ["std", "fontconfig"] }
+crc32fast = { workspace = true }
 derive-new = { workspace = true }
 encoding_rs = { workspace = true }
 flate2 = { workspace = true, features = ["zlib-rs"] }
-hashbrown = { workspace = true }
+hashbrown = { workspace = true, features = ["serde"] }
 image = { workspace = true, features = ["bmp", "jpeg", "png", "tga", "rayon"] }
 korangar_audio = { workspace = true }
 korangar_debug = { workspace = true, optional = true }

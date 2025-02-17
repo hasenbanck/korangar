@@ -4,11 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-cgmath = { workspace = true }
+cgmath = { workspace = true, features = ["serde"] }
 fast-srgb8 = { workspace = true }
 hashbrown = { workspace = true }
 image = { workspace = true }
 korangar_interface = { workspace = true, optional = true }
+serde = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
 rand_aes = { workspace = true }

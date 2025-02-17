@@ -1,8 +1,10 @@
 //! An OS folder containing game assets.
 use std::collections::HashMap;
 use std::fs;
+use std::hash::Hash;
 use std::path::{Path, PathBuf};
 
+use crc32fast::Hasher;
 use walkdir::WalkDir;
 
 use super::{Archive, Writable};
@@ -18,6 +20,7 @@ pub struct FolderArchive {
     /// "texture\\data\\angel.str" -> texture/data/Angel.str
     /// ```
     file_mapping: HashMap<String, PathBuf>,
+    hash_content: bool,
 }
 
 impl FolderArchive {
@@ -51,11 +54,15 @@ impl FolderArchive {
 }
 
 impl Archive for FolderArchive {
-    fn from_path(path: &Path) -> Self {
+    fn from_path(path: &Path, hash_content: bool) -> Self {
         let folder_path = PathBuf::from(path);
         let file_mapping = Self::load_mapping(&folder_path);
 
-        Self { folder_path, file_mapping }
+        Self {
+            folder_path,
+            file_mapping,
+            hash_content,
+        }
     }
 
     fn get_file_by_path(&self, asset_path: &str) -> Option<Vec<u8>> {
@@ -66,6 +73,12 @@ impl Archive for FolderArchive {
         let found_files = self.file_mapping.keys().filter(|file_name| file_name.ends_with(extension)).cloned();
 
         files.extend(found_files);
+    }
+
+    fn hash(&self, hasher: &mut Hasher) {
+        if self.hash_content {
+            self.file_mapping.values().for_each(|file| file.hash(hasher));
+        }
     }
 }
 
