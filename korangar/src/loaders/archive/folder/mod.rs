@@ -9,6 +9,7 @@ use korangar_debug::logging::print_debug;
 use walkdir::WalkDir;
 
 use super::{Archive, Writable};
+use crate::loaders::archive::native::NativeArchiveBuilder;
 
 pub struct FolderArchive {
     folder_path: PathBuf,
@@ -51,6 +52,22 @@ impl FolderArchive {
             })
             .collect()
     }
+
+    fn save_as_native_archive(&self, path: &Path) {
+        let mut builder = NativeArchiveBuilder::from_path(path);
+
+        let mut files: Vec<(String, PathBuf)> = self
+            .file_mapping
+            .iter()
+            .map(|(path, os_file_path)| (path.to_string(), os_file_path.clone()))
+            .collect();
+
+        files.sort_by(|(path_a, _), (path_b, _)| path_a.cmp(path_b));
+
+        files.iter().for_each(|(file, os_file_path)| builder.add_file(file, os_file_path));
+
+        builder.save();
+    }
 }
 
 impl Archive for FolderArchive {
@@ -90,7 +107,11 @@ impl Archive for FolderArchive {
 }
 
 impl Writable for FolderArchive {
-    fn add_file(&mut self, file_path: &str, file_data: Vec<u8>) {
+    fn add_file(&mut self, path: &str, os_file_path: &Path) {
+        self.file_mapping.insert(path.to_string(), os_file_path.to_path_buf());
+    }
+
+    fn add_file_data(&mut self, file_path: &str, file_data: Vec<u8>) {
         let normalized_asset_path = Self::os_specific_path(file_path);
         let full_path = self.folder_path.join(normalized_asset_path);
 
@@ -105,5 +126,7 @@ impl Writable for FolderArchive {
 
         // Write file contents to the file
         fs::write(&full_path, file_data).unwrap_or_else(|_| panic!("error writing to file {}", full_path.display()));
+
+        self.file_mapping.insert(file_path.to_string(), full_path);
     }
 }

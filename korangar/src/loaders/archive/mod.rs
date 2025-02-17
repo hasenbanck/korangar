@@ -25,7 +25,8 @@ pub enum ArchiveType {
 
 /// A common trait to all writable archives.
 pub trait Writable {
-    fn add_file(&mut self, path: &str, asset: Vec<u8>);
+    fn add_file(&mut self, path: &str, os_file_path: &Path);
+    fn add_file_data(&mut self, path: &str, asset: Vec<u8>);
 
-    fn save(&self) {}
+    fn save(&mut self) {}
 }

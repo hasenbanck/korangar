@@ -168,7 +168,7 @@ impl GameFileLoader {
 
             // Try to unify all bytecode to Lua 5.1 and possibly 64 bit.
             match unify(&bytes, &bytecode_format, &settings) {
-                Ok(bytes) => lua_archive.add_file(&file_name, bytes),
+                Ok(bytes) => lua_archive.add_file_data(&file_name, bytes),
                 // If the operation fails the file with this error, the Lua file is not actually a
                 // pre-compiled binary but rather a source file, so we can safely ignore it.
                 #[cfg(feature = "debug")]
