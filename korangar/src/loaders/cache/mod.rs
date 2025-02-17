@@ -1,59 +1,95 @@
 use std::fs;
-use std::fs::File;
-use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 
 use blake3::Hash;
 use hashbrown::HashMap;
+#[cfg(feature = "debug")]
+use korangar_debug::logging::print_debug;
 use korangar_util::container::{SecondarySimpleSlab, SimpleKey};
 use korangar_util::texture_atlas::{AllocationId, AtlasAllocation};
 use ragnarok_bytes::{ByteReader, ConversionResult, ConversionResultExt, FromBytes, ToBytes};
 
-use crate::loaders::{TextureAtlasEntry, TextureLoader};
+use crate::loaders::archive::folder::FolderArchive;
+use crate::loaders::archive::native::NativeArchive;
+use crate::loaders::archive::{Archive, Writable};
+use crate::loaders::{GameFileLoader, MapLoader, ModelLoader, TextureAtlasEntry, TextureLoader};
+
+const CACHE_PATH_NAME: &str = "cache";
+const MAP_FILE_EXTENSION: &str = ".rsw";
 
 // TODO: NHA use <Archive> instead
 pub struct Cache {
     texture_loader: Arc<TextureLoader>,
-    game_file_hash: Hash,
+    archive: Box<dyn Archive>,
 }
 
 impl Cache {
-    pub fn new(texture_loader: Arc<TextureLoader>, game_file_hash: Hash) -> Self {
-        // TODO: NHA Read hash of cache. If it's not set then delete cache folder and
-        //       create the cached files.
+    pub fn new(
+        game_file_loader: &GameFileLoader,
+        texture_loader: Arc<TextureLoader>,
+        map_loader: &MapLoader,
+        model_loader: &ModelLoader,
+        game_file_hash: Hash,
+    ) -> Self {
+        let path = Path::new(CACHE_PATH_NAME);
 
-        // TODO: NHA If it's the wrong hash, then check
-        //       every cached file and re-create, if source files have changed.
+        // TODO: NHA Verify the hash. If it's not correct, delete the folfer/file and
+        //       create again
+        //
+        // TODO: NHA Implement incremental update that verifies every cached file
+        let archive: Box<dyn Archive> = match path.exists() {
+            true if path.is_dir() => Box::new(FolderArchive::from_path(path)),
+            false if path.is_file() => Box::new(NativeArchive::from_path(path)),
+            _ => {
+                let hash_string = format!("{:x?}", game_file_hash.as_bytes());
+                let mut archive = Box::new(FolderArchive::from_path(Path::new(CACHE_PATH_NAME)));
+                archive.add_file_data("game_file_hash.txt", hash_string.as_bytes().to_vec());
+                let map_files = game_file_loader.get_files_with_extension(MAP_FILE_EXTENSION);
 
-        Self {
-            texture_loader,
-            game_file_hash,
-        }
+                #[cfg(feature = "debug")]
+                let map_count = map_files.len();
+
+                for (_index, map_file) in map_files.iter().enumerate() {
+                    let path = Path::new(&map_file);
+                    let map_name = path.file_stem().unwrap().to_string_lossy().to_string();
+
+                    #[cfg(feature = "debug")]
+                    print_debug!("Creating texture atlas for map `{}`", &map_name);
+
+                    match map_loader.generate_texture_atlas(&map_name, model_loader, texture_loader.clone()) {
+                        Ok(cached_texture_atlas) => {
+                            let atlas_file_path = Self::get_texture_atlas_cache_base_path(&map_name, true, true);
+                            let data = cached_texture_atlas
+                                .to_bytes()
+                                .expect("can't convert cached texture atlas data to bytes");
+
+                            archive.add_file_data(&atlas_file_path, data);
+                        }
+                        Err(_err) => {
+                            #[cfg(feature = "debug")]
+                            print_debug!("Error while creating texture atlas for map `{}`: {:?}", map_name, _err);
+                        }
+                    };
+
+                    #[cfg(feature = "debug")]
+                    print_debug!("Finished {} of {} total maps", _index + 1, map_count);
+                }
+
+                archive
+            }
+        };
+
+        Self { texture_loader, archive }
     }
 
     fn get_texture_atlas_cache_base_path(name: &str, add_padding: bool, create_mip_map: bool) -> String {
         format!(
-            "cache/atlas/{}_{}_{}.dat",
+            "atlas/{}_{}_{}.dat",
             name,
             if add_padding { "padded" } else { "unpadded" },
             if create_mip_map { "mip" } else { "nomip" }
         )
-    }
-
-    pub fn save_texture_atlas(&self, name: &str, add_padding: bool, create_mip_map: bool, cached_texture_atlas: CachedTextureAtlas) {
-        let data_path = Self::get_texture_atlas_cache_base_path(name, add_padding, create_mip_map);
-
-        if let Some(parent) = Path::new(&data_path).parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-        let mut file = File::create(&data_path).expect("can't create texture atlas cache file");
-
-        let data = cached_texture_atlas
-            .to_bytes()
-            .expect("can't convert cached texture atlas data to bytes");
-
-        file.write_all(&data).expect("can't write cache data to cache file");
     }
 
     pub fn load_texture_atlas(&self, name: &str, add_padding: bool, create_mip_map: bool) -> Option<CachedTextureAtlas> {
@@ -114,7 +150,11 @@ impl ToBytes for CachedTextureAtlas {
             atlas_allocation: *atlas_allocation,
         }));
         let atlas_data = TextureAtlasData { lookup, allocations };
-        atlas_data.to_bytes().trace::<Self>()
+
+        let mut bytes = atlas_data.to_bytes().trace::<Self>()?;
+        bytes.extend(&self.image.to_bytes().trace::<Self>()?);
+
+        Ok(bytes)
     }
 }
 

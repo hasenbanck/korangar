@@ -397,12 +397,7 @@ impl Client {
             std::fs::create_dir_all("client/themes").unwrap();
 
             let model_loader = Arc::new(ModelLoader::new(game_file_loader.clone()));
-            let texture_loader = Arc::new(TextureLoader::new(
-                device.clone(),
-                queue.clone(),
-                game_file_loader.clone(),
-                &capabilities,
-            ));
+            let texture_loader = Arc::new(TextureLoader::new(device.clone(), queue.clone(), game_file_loader.clone()));
             let font_loader = Arc::new(FontLoader::new(application.get_fonts(), &game_file_loader, &texture_loader));
             let map_loader = Arc::new(MapLoader::new(
                 device.clone(),
@@ -433,7 +428,13 @@ impl Client {
                 Library::new(&game_file_loader).unwrap()
             });
 
-            let cache = Arc::new(Cache::new(texture_loader.clone(), game_file_hash));
+            let cache = Arc::new(Cache::new(
+                &game_file_loader,
+                texture_loader.clone(),
+                &map_loader,
+                &model_loader,
+                game_file_hash,
+            ));
 
             let async_loader = Arc::new(AsyncLoader::new(
                 cache.clone(),
@@ -598,14 +599,9 @@ impl Client {
         });
 
         time_phase!("load default map", {
-            let mut texture_atlas: Box<dyn TextureAtlas> = match cache.load_texture_atlas(&DEFAULT_MAP, true, true) {
+            let mut texture_atlas: Box<dyn TextureAtlas> = match cache.load_texture_atlas(DEFAULT_MAP, true, true) {
                 Some(texture_atlas) => Box::new(texture_atlas),
-                None => Box::new(UncompressedTextureAtlas::new(
-                    texture_loader.clone(),
-                    DEFAULT_MAP.clone(),
-                    true,
-                    true,
-                )),
+                None => Box::new(UncompressedTextureAtlas::new(texture_loader.clone(), DEFAULT_MAP, true, true)),
             };
 
             let map = map_loader

@@ -23,7 +23,7 @@ use super::error::LoadError;
 use super::{
     CachedTextureAtlas, CachedTextureAtlasImage, FALLBACK_BMP_FILE, FALLBACK_JPEG_FILE, FALLBACK_PNG_FILE, FALLBACK_TGA_FILE, MIP_LEVELS,
 };
-use crate::graphics::{Capabilities, Lanczos3Drawer, MipMapRenderPassContext, Texture};
+use crate::graphics::{Lanczos3Drawer, MipMapRenderPassContext, Texture};
 use crate::loaders::GameFileLoader;
 
 const MAX_CACHE_COUNT: u32 = 512;
@@ -44,11 +44,10 @@ pub struct TextureLoader {
     lanczos3_drawer: Lanczos3Drawer,
     block_compressor: Mutex<GpuBlockCompressor>,
     cache: Mutex<SimpleCache<(String, ImageType), Arc<Texture>>>,
-    supports_texture_compression: bool,
 }
 
 impl TextureLoader {
-    pub fn new(device: Arc<Device>, queue: Arc<Queue>, game_file_loader: Arc<GameFileLoader>, capabilities: &Capabilities) -> Self {
+    pub fn new(device: Arc<Device>, queue: Arc<Queue>, game_file_loader: Arc<GameFileLoader>) -> Self {
         let lanczos3_drawer = Lanczos3Drawer::new(&device);
         let block_compressor = Mutex::new(GpuBlockCompressor::new(device.clone(), queue.clone()));
 
@@ -63,7 +62,6 @@ impl TextureLoader {
                 NonZeroU32::new(MAX_CACHE_COUNT).unwrap(),
                 NonZeroUsize::new(MAX_CACHE_SIZE).unwrap(),
             )),
-            supports_texture_compression: capabilities.supports_texture_compression(),
         }
     }
 
@@ -607,7 +605,6 @@ pub struct UncompressedTextureAtlas {
     offline_atlas: OfflineTextureAtlas,
     lookup: HashMap<String, TextureAtlasEntry>,
     name: String,
-    add_padding: bool,
     create_mip_map: bool,
     transparent: bool,
 }
@@ -621,7 +618,6 @@ impl UncompressedTextureAtlas {
             texture_loader,
             lookup: HashMap::default(),
             name: name.into(),
-            add_padding,
             create_mip_map,
             transparent: false,
         }
@@ -661,22 +657,22 @@ impl UncompressedTextureAtlas {
             .write_with_encoder(TgaEncoder::new(&mut uncompressed_data))
             .expect("can't encode texture atlas as TGA file");
 
-        // TODO: NHA Compress as BC7
+        let width = rgba_image.width();
+        let height = rgba_image.height();
+        let compressed_data = self.texture_loader.create_compressed_with_mipmaps(MIP_LEVELS, rgba_image);
 
-        let cached_texture_atlas = CachedTextureAtlas {
+        CachedTextureAtlas {
             texture_loader: self.texture_loader.clone(),
             lookup,
             allocations,
             image: CachedTextureAtlasImage {
-                width: rgba_image.width(),
-                height: rgba_image.height(),
+                width,
+                height,
                 mipmaps_count: MIP_LEVELS,
                 uncompressed_data,
-                compressed_data: vec![],
+                compressed_data,
             },
-        };
-
-        cached_texture_atlas
+        }
     }
 }
 

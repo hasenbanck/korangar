@@ -240,7 +240,6 @@ impl MapLoader {
             .filter(|_| !(water_bounds.min == Point2::from_value(f32::MAX) && water_bounds.max == Point2::from_value(f32::MIN)));
 
         let map = Map::new(
-            resource_file,
             gat_data.map_width as usize,
             gat_data.map_height as usize,
             lighting,
