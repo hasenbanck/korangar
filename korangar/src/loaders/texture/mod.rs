@@ -662,14 +662,12 @@ impl UncompressedTextureAtlas {
         let compressed_data = self.texture_loader.create_compressed_with_mipmaps(MIP_LEVELS, rgba_image);
 
         CachedTextureAtlas {
-            texture_loader: self.texture_loader.clone(),
             lookup,
             allocations,
             image: CachedTextureAtlasImage {
                 width,
                 height,
                 mipmaps_count: MIP_LEVELS,
-                uncompressed_data,
                 compressed_data,
             },
         }

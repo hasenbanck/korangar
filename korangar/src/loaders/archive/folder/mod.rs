@@ -53,7 +53,7 @@ impl FolderArchive {
             .collect()
     }
 
-    fn save_as_native_archive(&self, path: &Path) {
+    pub fn save_as_native_archive(&self, path: &Path) {
         let mut builder = NativeArchiveBuilder::from_path(path);
 
         let mut files: Vec<(String, PathBuf)> = self
