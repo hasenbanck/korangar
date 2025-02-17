@@ -5,16 +5,12 @@ use std::path::Path;
 use std::sync::Arc;
 
 use blake3::Hash;
-use derive_new::new;
 use hashbrown::HashMap;
-use image::codecs::tga::TgaEncoder;
-use image::RgbaImage;
 use korangar_util::container::{SecondarySimpleSlab, SimpleKey};
 use korangar_util::texture_atlas::{AllocationId, AtlasAllocation};
 use ragnarok_bytes::{ByteReader, ConversionResult, ConversionResultExt, FromBytes, ToBytes};
 
-use crate::loaders::texture::TextureAtlasEntry;
-use crate::loaders::TextureLoader;
+use crate::loaders::{TextureAtlasEntry, TextureLoader};
 
 // TODO: NHA use <Archive> instead
 pub struct Cache {
@@ -45,14 +41,7 @@ impl Cache {
         )
     }
 
-    pub fn save_texture_atlas(
-        &self,
-        name: &str,
-        add_padding: bool,
-        create_mip_map: bool,
-        cached_texture_atlas: CachedTextureAtlas,
-        cached_texture_atlas_image: CachedTextureAtlasImage,
-    ) {
+    pub fn save_texture_atlas(&self, name: &str, add_padding: bool, create_mip_map: bool, cached_texture_atlas: CachedTextureAtlas) {
         let data_path = Self::get_texture_atlas_cache_base_path(name, add_padding, create_mip_map);
 
         if let Some(parent) = Path::new(&data_path).parent() {
@@ -63,36 +52,29 @@ impl Cache {
         let data = cached_texture_atlas
             .to_bytes()
             .expect("can't convert cached texture atlas data to bytes");
-        file.write_all(&data).expect("can't write cache data to cache file");
 
-        let data = cached_texture_atlas_image
-            .to_bytes()
-            .expect("can't convert cached texture atlas image to bytes");
         file.write_all(&data).expect("can't write cache data to cache file");
     }
 
-    pub fn load_texture_atlas(
-        &self,
-        name: &str,
-        add_padding: bool,
-        create_mip_map: bool,
-    ) -> Option<(CachedTextureAtlas, CachedTextureAtlasImage)> {
+    pub fn load_texture_atlas(&self, name: &str, add_padding: bool, create_mip_map: bool) -> Option<CachedTextureAtlas> {
         let data_path = Self::get_texture_atlas_cache_base_path(name, add_padding, create_mip_map);
         let data = fs::read(&data_path).ok()?;
         let mut byte_reader = ByteReader::<()>::without_metadata(&data);
-        let cached_atlas = CachedTextureAtlas::from_bytes(&mut byte_reader).ok()?;
-        let cached_atlas_image = CachedTextureAtlasImage::from_bytes(&mut byte_reader).ok()?;
-        Some((cached_atlas, cached_atlas_image))
+        let cached_atlas = CachedTextureAtlas::from_byte_reader(self.texture_loader.clone(), &mut byte_reader).ok()?;
+
+        Some(cached_atlas)
     }
 }
 
 pub struct CachedTextureAtlas {
+    pub texture_loader: Arc<TextureLoader>,
     pub lookup: HashMap<String, TextureAtlasEntry>,
     pub allocations: SecondarySimpleSlab<AllocationId, AtlasAllocation>,
+    pub image: CachedTextureAtlasImage,
 }
 
-impl FromBytes for CachedTextureAtlas {
-    fn from_bytes<Meta>(byte_reader: &mut ByteReader<Meta>) -> ConversionResult<Self> {
+impl CachedTextureAtlas {
+    fn from_byte_reader<Meta>(texture_loader: Arc<TextureLoader>, byte_reader: &mut ByteReader<Meta>) -> ConversionResult<Self> {
         let mut atlas_data = TextureAtlasData::from_bytes(byte_reader).trace::<Self>()?;
 
         let mut lookup = HashMap::with_capacity(atlas_data.lookup.len());
@@ -110,7 +92,14 @@ impl FromBytes for CachedTextureAtlas {
             allocations.insert(AllocationId::new(entry.key), entry.atlas_allocation);
         });
 
-        Ok(CachedTextureAtlas { lookup, allocations })
+        let image = CachedTextureAtlasImage::from_bytes(byte_reader).trace::<Self>()?;
+
+        Ok(CachedTextureAtlas {
+            texture_loader,
+            lookup,
+            allocations,
+            image,
+        })
     }
 }
 

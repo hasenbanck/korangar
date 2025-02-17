@@ -130,7 +130,7 @@ impl OfflineTextureAtlas {
     /// Builds the atlas with the optimal atlas size.
     pub fn build_atlas(&mut self) {
         if self.image.is_some() {
-            panic!("atlas is already build");
+            return;
         }
 
         let mut deferred_allocations: Vec<(AllocationId, DeferredAllocation)> = self.deferred_allocation.drain().collect();
@@ -302,7 +302,7 @@ impl OfflineTextureAtlas {
     }
 
     /// Returns the bytes of the underlying image buffer.
-    pub fn get_atlas(mut self) -> RgbaImage {
+    pub fn get_atlas(&mut self) -> RgbaImage {
         self.image.take().expect("the atlas has not been build yet")
     }
 

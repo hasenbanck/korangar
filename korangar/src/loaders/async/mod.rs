@@ -11,10 +11,13 @@ use korangar_util::texture_atlas::AtlasAllocation;
 use ragnarok_packets::{EntityId, ItemId, TilePosition};
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
-use crate::graphics::{Texture, TextureCompression};
+use crate::graphics::Texture;
 use crate::init_tls_rand;
 use crate::loaders::error::LoadError;
-use crate::loaders::{ActionLoader, AnimationLoader, Cache, ImageType, MapLoader, ModelLoader, SpriteLoader, TextureLoader};
+use crate::loaders::{
+    ActionLoader, AnimationLoader, Cache, ImageType, MapLoader, ModelLoader, SpriteLoader, TextureAtlas, TextureLoader,
+    UncompressedTextureAtlas,
+};
 #[cfg(feature = "debug")]
 use crate::threads;
 use crate::world::{AnimationData, EntityType, Map};
@@ -163,7 +166,6 @@ impl AsyncLoader {
 
     pub fn request_map_load(
         &self,
-        texture_compression: TextureCompression,
         map_name: String,
         player_position: Option<TilePosition>,
         #[cfg(feature = "debug")] tile_texture_mapping: Arc<Vec<AtlasAllocation>>,
@@ -177,15 +179,25 @@ impl AsyncLoader {
             #[cfg(feature = "debug")]
             let _load_measurement = Profiler::start_measurement("map load");
 
+            let mut texture_atlas: Box<dyn TextureAtlas> = match cache.load_texture_atlas(&map_name, true, true) {
+                Some(texture_atlas) => Box::new(texture_atlas),
+                None => Box::new(UncompressedTextureAtlas::new(
+                    texture_loader.clone(),
+                    map_name.clone(),
+                    true,
+                    true,
+                )),
+            };
+
             let map = map_loader.load(
-                &cache,
-                texture_compression,
+                &mut (*texture_atlas),
                 map_name,
                 &model_loader,
                 texture_loader,
                 #[cfg(feature = "debug")]
                 &tile_texture_mapping,
             )?;
+
             Ok(LoadableResource::Map { map, player_position })
         });
     }

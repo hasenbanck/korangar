@@ -16,8 +16,7 @@ use super::error::LoadError;
 use super::{smooth_model_normals, FALLBACK_MODEL_FILE};
 use crate::graphics::{Color, NativeModelVertex};
 use crate::loaders::map::DeferredVertexGeneration;
-use crate::loaders::texture::TextureAtlasEntry;
-use crate::loaders::{GameFileLoader, TextureAtlasFactory};
+use crate::loaders::{GameFileLoader, TextureAtlas, TextureAtlasEntry};
 use crate::world::{Model, Node};
 
 #[derive(new)]
@@ -275,7 +274,7 @@ impl ModelLoader {
 
     pub fn load(
         &self,
-        texture_atlas_factory: &mut TextureAtlasFactory,
+        texture_atlas: &mut dyn TextureAtlas,
         vertex_offset: &mut usize,
         model_file: &str,
         reverse_order: bool,
@@ -292,7 +291,7 @@ impl ModelLoader {
                     print_debug!("Replacing with fallback");
                 }
 
-                return self.load(texture_atlas_factory, vertex_offset, FALLBACK_MODEL_FILE, reverse_order);
+                return self.load(texture_atlas, vertex_offset, FALLBACK_MODEL_FILE, reverse_order);
             }
         };
         let mut byte_reader: ByteReader<Option<InternalVersion>> = ByteReader::with_default_metadata(&bytes);
@@ -306,7 +305,7 @@ impl ModelLoader {
                     print_debug!("Replacing with fallback");
                 }
 
-                return self.load(texture_atlas_factory, vertex_offset, FALLBACK_MODEL_FILE, reverse_order);
+                return self.load(texture_atlas, vertex_offset, FALLBACK_MODEL_FILE, reverse_order);
             }
         };
 
@@ -322,13 +321,13 @@ impl ModelLoader {
                 print_debug!("Replacing with fallback");
             }
 
-            return self.load(texture_atlas_factory, vertex_offset, FALLBACK_MODEL_FILE, reverse_order);
+            return self.load(texture_atlas, vertex_offset, FALLBACK_MODEL_FILE, reverse_order);
         }
 
         let texture_allocation: Vec<TextureAtlasEntry> = model_data
             .texture_names
             .iter()
-            .map(|texture_name| texture_atlas_factory.register(texture_name.as_ref()))
+            .map(|texture_name| texture_atlas.register(texture_name.as_ref()))
             .collect();
 
         let texture_mapping: Vec<ModelTexture> = texture_allocation
