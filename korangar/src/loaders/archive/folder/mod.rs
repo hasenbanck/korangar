@@ -5,6 +5,7 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 
 use blake3::Hasher;
+#[cfg(feature = "debug")]
 use korangar_debug::logging::print_debug;
 use walkdir::WalkDir;
 
@@ -64,7 +65,11 @@ impl FolderArchive {
 
         files.sort_by(|(path_a, _), (path_b, _)| path_a.cmp(path_b));
 
-        files.iter().for_each(|(file, os_file_path)| builder.add_file(file, os_file_path));
+        files.iter().for_each(|(file, os_file_path)| {
+            #[cfg(feature = "debug")]
+            print_debug!("Adding file `{}` with path `{:?}`", file, os_file_path);
+            builder.add_file(file, os_file_path)
+        });
 
         builder.save();
     }
