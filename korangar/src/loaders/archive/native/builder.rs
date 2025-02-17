@@ -5,7 +5,8 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::io::Read;
+use std::fs::File;
+use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use flate2::bufread::ZlibEncoder;
@@ -56,20 +57,22 @@ impl Writable for NativeArchiveBuilder {
     }
 
     fn save(&mut self) {
+        let mut file_writer = BufWriter::new(File::create(self.os_file_path.as_path()).unwrap());
         let mut file_table = FileTable::new();
 
-        let file_header_size = Header::size_in_bytes();
-        let dummy_file_header = Header::new(42, 0, 0, 0);
-        let mut bytes = dummy_file_header.to_bytes().unwrap();
+        let dummy_header_bytes = vec![0; Header::size_in_bytes()];
+        file_writer.write_all(&dummy_header_bytes).expect("unable to write file");
+
+        let mut offset = 0;
 
         for entry in self.archive_entries.drain(..) {
             match entry.data {
                 ArchiveEntry::Data(data) => {
-                    add_asset_to_file_table(&mut bytes, &mut file_table, &entry.path, &data);
+                    add_asset_to_file_table(&mut file_writer, &mut offset, &mut file_table, &entry.path, &data);
                 }
                 ArchiveEntry::File(path) => {
                     let data = fs::read(path).expect("can't read file to archive");
-                    add_asset_to_file_table(&mut bytes, &mut file_table, &entry.path, &data);
+                    add_asset_to_file_table(&mut file_writer, &mut offset, &mut file_table, &entry.path, &data);
                 }
             }
         }
@@ -89,24 +92,28 @@ impl Writable for NativeArchiveBuilder {
             uncompressed_size: file_table_data.len() as u32,
         };
 
-        let file_table_offset = bytes.len();
-        bytes.extend(asset_table.to_bytes().unwrap());
-        bytes.extend(compressed);
+        let file_table_bytes = asset_table.to_bytes().unwrap();
+        file_writer.write_all(&file_table_bytes).expect("unable to write file");
+        file_writer.write_all(&compressed).expect("unable to write file");
 
-        let file_table_offset = (file_table_offset - file_header_size) as u32;
         let reserved_files = 0;
         let raw_file_count = file_table.len() as u32 + 7;
         let version = 0x200;
-        let file_header_bytes = Header::new(file_table_offset, reserved_files, raw_file_count, version)
-            .to_bytes()
-            .unwrap();
-        bytes[..file_header_size].copy_from_slice(&file_header_bytes[..file_header_size]);
+        let file_header_bytes = Header::new(offset, reserved_files, raw_file_count, version).to_bytes().unwrap();
 
-        fs::write(&self.os_file_path, bytes).expect("unable to write file");
+        file_writer.seek(SeekFrom::Start(0)).expect("can't seek start of file");
+        file_writer.write_all(&file_header_bytes).expect("unable to write file");
+        file_writer.flush().expect("can't flush file writer");
     }
 }
 
-fn add_asset_to_file_table(bytes: &mut Vec<u8>, file_table: &mut HashMap<String, FileTableRow>, path: &str, data: &[u8]) {
+fn add_asset_to_file_table(
+    file_writer: &mut BufWriter<File>,
+    offset: &mut u32,
+    file_table: &mut HashMap<String, FileTableRow>,
+    path: &str,
+    data: &[u8],
+) {
     let mut encoder = ZlibEncoder::new(data, Compression::best());
     let mut compressed = Vec::default();
     encoder.read_to_end(&mut compressed).expect("can't compress asset data");
@@ -122,9 +129,10 @@ fn add_asset_to_file_table(bytes: &mut Vec<u8>, file_table: &mut HashMap<String,
         compressed_size_aligned,
         uncompressed_size,
         flags,
-        offset: (bytes.len() - Header::size_in_bytes()) as u32,
+        offset: *offset,
     };
+    *offset = offset.checked_add(compressed.len() as u32).expect("offset overflow");
 
     file_table.insert(path.to_string(), file_information);
-    bytes.extend(compressed);
+    file_writer.write_all(&compressed).unwrap()
 }
