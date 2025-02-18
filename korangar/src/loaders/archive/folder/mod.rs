@@ -2,16 +2,16 @@
 use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
-use std::io::Error;
+use std::io::{Error, Read};
 use std::path::{Path, PathBuf};
 
 use blake3::Hasher;
+use flate2::bufread::GzDecoder;
 #[cfg(feature = "debug")]
 use korangar_debug::logging::print_debug;
 use walkdir::WalkDir;
 
 use super::{Archive, Writable};
-use crate::loaders::archive::native::NativeArchiveBuilder;
 
 pub struct FolderArchive {
     folder_path: PathBuf,
@@ -41,7 +41,7 @@ impl FolderArchive {
             .filter_map(|entry| entry.ok())
             .filter(|entry| entry.file_type().is_file())
             .map(|file| {
-                let asset_path = file
+                let mut asset_path = file
                     .path()
                     .strip_prefix(directory)
                     .unwrap()
@@ -49,6 +49,10 @@ impl FolderArchive {
                     .unwrap()
                     .replace('/', "\\")
                     .to_lowercase();
+
+                if asset_path.ends_with(".gz") {
+                    asset_path = asset_path.strip_suffix(".gz").unwrap().to_string();
+                }
 
                 (asset_path, file.into_path())
             })
@@ -65,7 +69,20 @@ impl Archive for FolderArchive {
     }
 
     fn get_file_by_path(&self, asset_path: &str) -> Option<Vec<u8>> {
-        self.file_mapping.get(asset_path).and_then(|file_path| fs::read(file_path).ok())
+        self.file_mapping.get(asset_path).and_then(|file_path| {
+            fs::read(file_path)
+                .map(|file_data| {
+                    if file_path.extension().unwrap_or_default() == "gz" {
+                        let mut decoder = GzDecoder::new(file_data.as_slice());
+                        let mut decompressed = Vec::new();
+                        decoder.read_to_end(&mut decompressed).unwrap();
+                        decompressed
+                    } else {
+                        file_data
+                    }
+                })
+                .ok()
+        })
     }
 
     fn get_files_with_extension(&self, files: &mut Vec<String>, extension: &str) {
@@ -108,13 +125,16 @@ impl Writable for FolderArchive {
 
         let (path, data) = match compress {
             true => {
-                let data = zstd::encode_all(file_data.as_slice(), 3).unwrap();
+                let mut encoder = flate2::bufread::GzEncoder::new(file_data.as_slice(), flate2::Compression::new(6));
+                let mut compressed = Vec::default();
+                encoder.read_to_end(&mut compressed).unwrap();
+
                 let extension = full_path.extension().unwrap_or_default().to_string_lossy().into_owned();
 
-                let compressed_extension = format!("{}.zstd", extension);
+                let compressed_extension = format!("{}.gz", extension);
                 full_path.set_extension(compressed_extension);
 
-                (full_path, data)
+                (full_path, compressed)
             }
             false => (full_path, file_data),
         };
