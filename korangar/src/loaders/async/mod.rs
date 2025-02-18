@@ -179,7 +179,7 @@ impl AsyncLoader {
             #[cfg(feature = "debug")]
             let _load_measurement = Profiler::start_measurement("map load");
 
-            let mut texture_atlas: Box<dyn TextureAtlas> = match cache.load_texture_atlas(&map_name, true, true) {
+            let mut texture_atlas: Box<dyn TextureAtlas> = match cache.load_texture_atlas(&map_name) {
                 Some(texture_atlas) => Box::new(texture_atlas),
                 None => Box::new(UncompressedTextureAtlas::new(
                     texture_loader.clone(),

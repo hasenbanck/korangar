@@ -123,7 +123,7 @@ impl Cache {
                         .to_bytes()
                         .expect("can't convert cached texture atlas data to bytes");
 
-                    let atlas_file_path = Self::get_texture_atlas_cache_base_path(&map_name, true, true);
+                    let atlas_file_path = Self::get_texture_atlas_cache_base_path(&map_name);
 
                     archive.add_asset(&atlas_file_path, data, true);
                 }
@@ -140,16 +140,11 @@ impl Cache {
         archive
     }
 
-    fn get_texture_atlas_cache_base_path(name: &str, add_padding: bool, create_mip_map: bool) -> String {
-        format!(
-            "atlas/{}_{}_{}.dat",
-            name,
-            if add_padding { "padded" } else { "unpadded" },
-            if create_mip_map { "mip" } else { "nomip" }
-        )
+    fn get_texture_atlas_cache_base_path(name: &str) -> String {
+        format!("atlas/{}.dat", name,)
     }
 
-    pub fn load_texture_atlas(&self, name: &str, add_padding: bool, create_mip_map: bool) -> Option<CachedTextureAtlas> {
+    pub fn load_texture_atlas(&self, name: &str) -> Option<CachedTextureAtlas> {
         // Cached textures can only be used, if the graphics card supports BC texture
         // compression (desktop class GPUs have nearly 100% support for it, including
         // M1+ GPUs).
@@ -157,7 +152,7 @@ impl Cache {
             return None;
         }
 
-        let data_path = Self::get_texture_atlas_cache_base_path(name, add_padding, create_mip_map);
+        let data_path = Self::get_texture_atlas_cache_base_path(name);
         let data = self.archive.get_file_by_path(&data_path)?;
 
         let mut byte_reader = ByteReader::<()>::without_metadata(&data);
