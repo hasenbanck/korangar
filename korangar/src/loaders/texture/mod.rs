@@ -245,6 +245,7 @@ impl TextureLoader {
         });
 
         let mut mip_views = Vec::with_capacity(mips_level as usize);
+        // TODO: NHA change to either alpha_basic() or alpha_slow()
         let variant = CompressionVariant::BC7(BC7Settings::alpha_ultrafast());
 
         let mut total_size = 0;
@@ -398,6 +399,8 @@ impl TextureLoader {
         #[cfg(feature = "debug")]
         let timer = Timer::new_dynamic(format!("load texture data from {}", path.magenta()));
 
+        let path = Self::fix_broken_file_endings(path);
+
         let image_format = match &path[path.len() - 4..] {
             ".bmp" | ".BMP" => ImageFormat::Bmp,
             ".jpg" | ".JPG" => ImageFormat::Jpeg,
@@ -472,6 +475,28 @@ impl TextureLoader {
         timer.stop();
 
         Ok((image_buffer, transparent))
+    }
+
+    fn fix_broken_file_endings(path: &str) -> String {
+        let mut path = path.to_string();
+
+        if path.ends_with(".bm") {
+            path.push('p');
+        }
+
+        if path.ends_with(".jp") {
+            path.push('g');
+        }
+
+        if path.ends_with(".pn") {
+            path.push('g');
+        }
+
+        if path.ends_with(".tg") {
+            path.push('a');
+        }
+
+        path
     }
 
     pub fn load_grayscale_texture_data(&self, path: &str) -> Result<GrayImage, LoadError> {
