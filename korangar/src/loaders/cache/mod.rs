@@ -103,7 +103,7 @@ impl Cache {
                     let mut textures: Vec<String> = textures.into_iter().collect();
                     textures.sort();
 
-                    let mut texture_atlas = UncompressedTextureAtlas::new(texture_loader.clone(), map_name.to_string(), true, true);
+                    let mut texture_atlas = UncompressedTextureAtlas::new(texture_loader.clone(), map_name.to_string(), true, true, true);
                     textures.iter().for_each(|texture| {
                         let _ = texture_atlas.register(texture);
                     });
@@ -168,6 +168,7 @@ impl Cache {
 }
 
 pub struct CachedTextureAtlas {
+    pub hash: Hash,
     pub lookup: HashMap<String, TextureAtlasEntry>,
     pub allocations: SecondarySimpleSlab<AllocationId, AtlasAllocation>,
     pub image: CachedTextureAtlasImage,
@@ -176,6 +177,8 @@ pub struct CachedTextureAtlas {
 impl FromBytes for CachedTextureAtlas {
     fn from_bytes<Meta>(byte_reader: &mut ByteReader<Meta>) -> ConversionResult<Self> {
         let mut atlas_data = TextureAtlasData::from_bytes(byte_reader).trace::<Self>()?;
+
+        let hash = <[u8; blake3::OUT_LEN]>::from_bytes(byte_reader).trace::<Self>()?;
 
         let mut lookup = HashMap::with_capacity(atlas_data.lookup.len());
         atlas_data.lookup.drain(..).for_each(|entry| {
@@ -195,6 +198,7 @@ impl FromBytes for CachedTextureAtlas {
         let image = CachedTextureAtlasImage::from_bytes(byte_reader).trace::<Self>()?;
 
         Ok(CachedTextureAtlas {
+            hash: Hash::from_bytes(hash),
             lookup,
             allocations,
             image,
@@ -212,7 +216,11 @@ impl ToBytes for CachedTextureAtlas {
             key: id.key(),
             atlas_allocation: *atlas_allocation,
         }));
-        let atlas_data = TextureAtlasData { lookup, allocations };
+        let atlas_data = TextureAtlasData {
+            hash: *self.hash.as_bytes(),
+            lookup,
+            allocations,
+        };
 
         let mut bytes = atlas_data.to_bytes().trace::<Self>()?;
         bytes.extend(&self.image.to_bytes().trace::<Self>()?);
@@ -231,6 +239,7 @@ pub struct CachedTextureAtlasImage {
 
 #[derive(ToBytes, FromBytes)]
 struct TextureAtlasData {
+    hash: [u8; blake3::OUT_LEN],
     lookup: Vec<LookupEntry>,
     allocations: Vec<AllocationEntry>,
 }

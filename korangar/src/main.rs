@@ -602,7 +602,13 @@ impl Client {
         time_phase!("load default map", {
             let mut texture_atlas: Box<dyn TextureAtlas> = match cache.load_texture_atlas(DEFAULT_MAP, true, true) {
                 Some(texture_atlas) => Box::new(texture_atlas),
-                None => Box::new(UncompressedTextureAtlas::new(texture_loader.clone(), DEFAULT_MAP, true, true)),
+                None => Box::new(UncompressedTextureAtlas::new(
+                    texture_loader.clone(),
+                    DEFAULT_MAP,
+                    true,
+                    true,
+                    false,
+                )),
             };
 
             let map = map_loader

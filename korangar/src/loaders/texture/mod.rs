@@ -2,6 +2,7 @@ use std::io::Cursor;
 use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::{Arc, Mutex};
 
+use blake3::{Hash, Hasher};
 use block_compression::{BC7Settings, CompressionVariant, GpuBlockCompressor};
 use hashbrown::HashMap;
 use image::codecs::tga::TgaEncoder;
@@ -245,8 +246,7 @@ impl TextureLoader {
         });
 
         let mut mip_views = Vec::with_capacity(mips_level as usize);
-        // TODO: NHA change to either alpha_basic() or alpha_slow()
-        let variant = CompressionVariant::BC7(BC7Settings::alpha_ultrafast());
+        let variant = CompressionVariant::BC7(BC7Settings::alpha_slow());
 
         let mut total_size = 0;
         let mut offsets = Vec::with_capacity(mips_level as usize);
@@ -634,10 +634,17 @@ pub struct UncompressedTextureAtlas {
     name: String,
     create_mip_map: bool,
     transparent: bool,
+    hasher: Option<Hasher>,
 }
 
 impl UncompressedTextureAtlas {
-    pub fn new(texture_loader: Arc<TextureLoader>, name: impl Into<String>, add_padding: bool, create_mip_map: bool) -> Self {
+    pub fn new(
+        texture_loader: Arc<TextureLoader>,
+        name: impl Into<String>,
+        add_padding: bool,
+        create_mip_map: bool,
+        calculate_hash: bool,
+    ) -> Self {
         let mip_level_count = if create_mip_map { NonZeroU32::new(MIP_LEVELS) } else { None };
 
         Self {
@@ -647,6 +654,7 @@ impl UncompressedTextureAtlas {
             name: name.into(),
             create_mip_map,
             transparent: false,
+            hasher: if calculate_hash { Some(Hasher::default()) } else { None },
         }
     }
 
@@ -657,7 +665,7 @@ impl UncompressedTextureAtlas {
         add_padding: bool,
         paths: &[&str],
     ) -> (Vec<AtlasAllocation>, Arc<Texture>) {
-        let mut factory = Self::new(texture_loader, name, add_padding, false);
+        let mut factory = Self::new(texture_loader, name, add_padding, false, false);
 
         let mut ids: Vec<TextureAtlasEntry> = paths.iter().map(|path| factory.register(path)).collect();
         factory.offline_atlas.build_atlas();
@@ -688,7 +696,13 @@ impl UncompressedTextureAtlas {
         let height = rgba_image.height();
         let compressed_data = self.texture_loader.create_compressed_with_mipmaps(MIP_LEVELS, rgba_image);
 
+        let hash = match self.hasher {
+            None => Hash::from_bytes([0; 32]),
+            Some(hasher) => hasher.finalize(),
+        };
+
         CachedTextureAtlas {
+            hash,
             lookup,
             allocations,
             image: CachedTextureAtlasImage {
@@ -709,6 +723,11 @@ impl TextureAtlas for UncompressedTextureAtlas {
 
         let (data, transparent) = self.texture_loader.load_texture_data(path, false).expect("can't load texture data");
         self.transparent |= transparent;
+
+        if let Some(hasher) = &mut self.hasher {
+            hasher.update(data.as_raw());
+        }
+
         let allocation_id = self.offline_atlas.register_image(data);
 
         let entry = TextureAtlasEntry {

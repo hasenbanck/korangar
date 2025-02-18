@@ -186,6 +186,7 @@ impl AsyncLoader {
                     map_name.clone(),
                     true,
                     true,
+                    false,
                 )),
             };
 
