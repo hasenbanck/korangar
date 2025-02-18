@@ -322,7 +322,7 @@ impl TextureLoader {
 
         drop(block_compressor);
 
-        self.queue.submit(Some(encoder.finish()));
+        self.queue.submit([encoder.finish()]);
 
         self.download_blocks_data(output_buffer)
     }
