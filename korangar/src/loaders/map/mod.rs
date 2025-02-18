@@ -5,7 +5,7 @@ use std::sync::Arc;
 use bytemuck::Pod;
 use cgmath::{Array, Point2, Vector3};
 use derive_new::new;
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 use korangar_audio::AudioEngine;
 #[cfg(feature = "debug")]
 use korangar_debug::logging::Timer;
@@ -57,14 +57,12 @@ pub struct MapLoader {
 }
 
 impl MapLoader {
-    pub fn generate_texture_atlas(
+    pub fn collect_map_textures(
         &self,
-        resource_file: &str,
         model_loader: &ModelLoader,
-        texture_loader: Arc<TextureLoader>,
-    ) -> Result<CachedTextureAtlas, LoadError> {
-        let mut texture_atlas = UncompressedTextureAtlas::new(texture_loader, resource_file.to_string(), true, true);
-
+        textures: &mut HashSet<String>,
+        resource_file: &str,
+    ) -> Result<(), LoadError> {
         let map_file_name = format!("data\\{}.rsw", resource_file);
         let map_data: MapData = parse_generic_data(&map_file_name, &self.game_file_loader)?;
 
@@ -72,18 +70,16 @@ impl MapLoader {
         let ground_data: GroundData = parse_generic_data(&ground_file, &self.game_file_loader)?;
 
         ground_data.textures.iter().for_each(|texture_name| {
-            let _ = texture_atlas.register(texture_name);
+            textures.insert(texture_name.clone());
         });
 
-        model_loader.register_model_textures(&mut texture_atlas, FALLBACK_MODEL_FILE);
+        model_loader.collect_model_textures(textures, FALLBACK_MODEL_FILE);
 
         map_data.resources.objects.iter().for_each(|object_data| {
-            model_loader.register_model_textures(&mut texture_atlas, object_data.model_name.as_str());
+            model_loader.collect_model_textures(textures, object_data.model_name.as_str());
         });
 
-        texture_atlas.build_atlas();
-
-        Ok(texture_atlas.to_cached_texture_atlas())
+        Ok(())
     }
 
     pub fn load(

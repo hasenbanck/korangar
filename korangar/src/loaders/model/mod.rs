@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use cgmath::{EuclideanSpace, Matrix4, Point3, Rad, SquareMatrix, Vector2, Vector3};
 use derive_new::new;
+use hashbrown::HashSet;
 #[cfg(feature = "debug")]
 use korangar_debug::logging::{print_debug, Colorize, Timer};
 use korangar_util::collision::AABB;
@@ -272,7 +273,7 @@ impl ModelLoader {
             .for_each(|child_node| Self::calculate_transformation_matrix(child_node, false, bounding_box, node.transform_matrix));
     }
 
-    pub fn register_model_textures(&self, texture_atlas: &mut impl TextureAtlas, model_file: &str) {
+    pub fn collect_model_textures(&self, textures: &mut HashSet<String>, model_file: &str) {
         let Ok(bytes) = self.game_file_loader.get(&format!("data\\model\\{model_file}")) else {
             return;
         };
@@ -283,7 +284,7 @@ impl ModelLoader {
         };
 
         model_data.texture_names.iter().for_each(|texture_name| {
-            let _ = texture_atlas.register(texture_name.as_ref());
+            let _ = textures.insert(texture_name.inner.clone());
         });
     }
 

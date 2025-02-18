@@ -67,11 +67,7 @@ impl FolderArchive {
 
         files.sort_by(|(path_a, _), (path_b, _)| path_a.cmp(path_b));
 
-        files.iter().for_each(|(file, os_file_path)| {
-            #[cfg(feature = "debug")]
-            print_debug!("Adding file `{}` with path `{:?}`", file, os_file_path);
-            builder.add_file(file, os_file_path)
-        });
+        files.iter().for_each(|(file, os_file_path)| builder.add_file(file, os_file_path));
 
         builder.save().expect("can't save native archive");
 

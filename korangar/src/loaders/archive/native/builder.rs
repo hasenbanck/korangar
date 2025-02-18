@@ -84,7 +84,7 @@ impl Writable for NativeArchiveBuilder {
             file_table_data.extend(file_information.to_bytes().unwrap());
         }
 
-        let mut encoder = ZlibEncoder::new(file_table_data.as_slice(), Compression::new(5));
+        let mut encoder = ZlibEncoder::new(file_table_data.as_slice(), Compression::best());
         let mut compressed = Vec::default();
         encoder.read_to_end(&mut compressed)?;
 
@@ -117,7 +117,7 @@ fn add_asset_to_file_table(
     path: &str,
     data: &[u8],
 ) {
-    let mut encoder = ZlibEncoder::new(data, Compression::new(5));
+    let mut encoder = ZlibEncoder::new(data, Compression::best());
     let mut compressed = Vec::default();
     encoder.read_to_end(&mut compressed).expect("can't compress asset data");
 
