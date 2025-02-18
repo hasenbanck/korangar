@@ -11,7 +11,7 @@ use korangar_debug::logging::print_debug;
 use walkdir::WalkDir;
 
 use super::{Archive, Writable};
-use crate::loaders::archive::native::{NativeArchive, NativeArchiveBuilder};
+use crate::loaders::archive::native::NativeArchiveBuilder;
 
 pub struct FolderArchive {
     folder_path: PathBuf,
@@ -54,25 +54,6 @@ impl FolderArchive {
             })
             .collect()
     }
-
-    #[must_use]
-    pub fn save_as_native_archive(&self, path: &Path) -> NativeArchive {
-        let mut builder = NativeArchiveBuilder::from_path(path);
-
-        let mut files: Vec<(String, PathBuf)> = self
-            .file_mapping
-            .iter()
-            .map(|(path, os_file_path)| (path.to_string(), os_file_path.clone()))
-            .collect();
-
-        files.sort_by(|(path_a, _), (path_b, _)| path_a.cmp(path_b));
-
-        files.iter().for_each(|(file, os_file_path)| builder.add_file(file, os_file_path));
-
-        builder.save().expect("can't save native archive");
-
-        NativeArchive::from_path(path)
-    }
 }
 
 impl Archive for FolderArchive {
@@ -112,13 +93,9 @@ impl Archive for FolderArchive {
 }
 
 impl Writable for FolderArchive {
-    fn add_file(&mut self, path: &str, os_file_path: &Path) {
-        self.file_mapping.insert(path.to_string(), os_file_path.to_path_buf());
-    }
-
-    fn add_file_data(&mut self, file_path: &str, file_data: Vec<u8>) {
+    fn add_asset(&mut self, file_path: &str, file_data: Vec<u8>, compress: bool) {
         let normalized_asset_path = Self::os_specific_path(file_path);
-        let full_path = self.folder_path.join(normalized_asset_path);
+        let mut full_path = self.folder_path.join(normalized_asset_path);
 
         // Create parent directories if needed
         if let Some(parent) = full_path.parent() {
@@ -129,10 +106,22 @@ impl Writable for FolderArchive {
             }
         }
 
-        // Write file contents to the file
-        fs::write(&full_path, file_data).unwrap_or_else(|_| panic!("error writing to file {}", full_path.display()));
+        let (path, data) = match compress {
+            true => {
+                let data = zstd::encode_all(file_data.as_slice(), 3).unwrap();
+                let extension = full_path.extension().unwrap_or_default().to_string_lossy().into_owned();
 
-        self.file_mapping.insert(file_path.to_string(), full_path);
+                let compressed_extension = format!("{}.zstd", extension);
+                full_path.set_extension(compressed_extension);
+
+                (full_path, data)
+            }
+            false => (full_path, file_data),
+        };
+
+        fs::write(&path, data).unwrap_or_else(|_| panic!("error writing to file {}", path.display()));
+
+        self.file_mapping.insert(file_path.to_string(), path);
     }
 
     fn save(&mut self) -> Result<(), Error> {

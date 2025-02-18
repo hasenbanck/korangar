@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -18,7 +17,6 @@ const CACHE_PATH_NAME: &str = "cache";
 const MAP_FILE_EXTENSION: &str = ".rsw";
 
 pub struct Cache {
-    texture_loader: Arc<TextureLoader>,
     archive: Box<dyn Archive>,
 }
 
@@ -38,18 +36,12 @@ impl Cache {
         //
         // TODO: NHA Implement incremental update that verifies every cached file
         let archive: Box<dyn Archive> = if folder_path.exists() && folder_path.is_dir() {
-            // TODO: NHA remove and rework
-            let mut archive = Box::new(FolderArchive::from_path(Path::new(CACHE_PATH_NAME)));
-
-            let hash_string = game_file_hash.to_hex().to_string();
-            archive.add_file_data("game_file_hash.txt", hash_string.as_bytes().to_vec());
-
-            let native_archive = archive.save_as_native_archive(&file_path);
-            Box::new(native_archive)
+            todo!()
         } else if file_path.exists() && file_path.is_file() {
             todo!()
         } else {
-            let map_files = game_file_loader.get_files_with_extension(MAP_FILE_EXTENSION);
+            let mut map_files = game_file_loader.get_files_with_extension(MAP_FILE_EXTENSION);
+            map_files.sort();
 
             #[cfg(feature = "debug")]
             let map_count = map_files.len();
@@ -89,7 +81,7 @@ impl Cache {
 
                         let atlas_file_path = Self::get_texture_atlas_cache_base_path(&map_name, true, true);
 
-                        archive.add_file_data(&atlas_file_path, data);
+                        archive.add_asset(&atlas_file_path, data, true);
                     }
                     Err(_err) => {
                         #[cfg(feature = "debug")]
@@ -99,17 +91,12 @@ impl Cache {
             }
 
             let hash_string = format!("{:x?}", game_file_hash.as_bytes());
-            archive.add_file_data("game_file_hash.txt", hash_string.as_bytes().to_vec());
+            archive.add_asset("game_file_hash.txt", hash_string.as_bytes().to_vec(), false);
 
-            #[cfg(feature = "debug")]
-            print_debug!("Converting to native archive");
-
-            let native_archive = archive.save_as_native_archive(&file_path);
-
-            Box::new(native_archive)
+            archive
         };
 
-        Self { texture_loader, archive }
+        Self { archive }
     }
 
     fn get_texture_atlas_cache_base_path(name: &str, add_padding: bool, create_mip_map: bool) -> String {
@@ -123,7 +110,8 @@ impl Cache {
 
     pub fn load_texture_atlas(&self, name: &str, add_padding: bool, create_mip_map: bool) -> Option<CachedTextureAtlas> {
         let data_path = Self::get_texture_atlas_cache_base_path(name, add_padding, create_mip_map);
-        let data = fs::read(&data_path).ok()?;
+        let data = self.archive.get_file_by_path(&data_path)?;
+
         let mut byte_reader = ByteReader::<()>::without_metadata(&data);
         let cached_atlas = CachedTextureAtlas::from_bytes(&mut byte_reader).ok()?;
 

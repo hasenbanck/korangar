@@ -245,7 +245,7 @@ impl TextureLoader {
         });
 
         let mut mip_views = Vec::with_capacity(mips_level as usize);
-        let variant = CompressionVariant::BC7(BC7Settings::alpha_slow());
+        let variant = CompressionVariant::BC7(BC7Settings::alpha_ultrafast());
 
         let mut total_size = 0;
         let mut offsets = Vec::with_capacity(mips_level as usize);

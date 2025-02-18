@@ -1,10 +1,10 @@
-//! Implements a writable instance of a GRF File
+//! Implements a writable instance of a GRF File.
+//!
 //! This way, we can provide a temporal storage to files before the final write
 //! occurs while keeping it outside the
 //! [`NativeArchive`](super::NativeArchive) implementation
 
 use std::collections::HashMap;
-use std::fs;
 use std::fs::File;
 use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -19,12 +19,8 @@ use crate::loaders::archive::Writable;
 
 struct FileTableEntry {
     path: String,
-    data: ArchiveEntry,
-}
-
-enum ArchiveEntry {
-    Data(Vec<u8>),
-    File(PathBuf),
+    compress: bool,
+    asset_data: Vec<u8>,
 }
 
 pub struct NativeArchiveBuilder {
@@ -42,17 +38,11 @@ impl NativeArchiveBuilder {
 }
 
 impl Writable for NativeArchiveBuilder {
-    fn add_file(&mut self, path: &str, os_file_path: &Path) {
+    fn add_asset(&mut self, path: &str, asset_data: Vec<u8>, compress: bool) {
         self.archive_entries.push(FileTableEntry {
             path: path.to_string(),
-            data: ArchiveEntry::File(os_file_path.to_path_buf()),
-        });
-    }
-
-    fn add_file_data(&mut self, path: &str, asset: Vec<u8>) {
-        self.archive_entries.push(FileTableEntry {
-            path: path.to_string(),
-            data: ArchiveEntry::Data(asset),
+            compress,
+            asset_data,
         });
     }
 
@@ -67,15 +57,14 @@ impl Writable for NativeArchiveBuilder {
         let mut offset = 0;
 
         for entry in self.archive_entries.drain(..) {
-            match entry.data {
-                ArchiveEntry::Data(data) => {
-                    add_asset_to_file_table(&mut file_writer, &mut offset, &mut file_table, &entry.path, &data);
-                }
-                ArchiveEntry::File(path) => {
-                    let data = fs::read(path)?;
-                    add_asset_to_file_table(&mut file_writer, &mut offset, &mut file_table, &entry.path, &data);
-                }
-            }
+            add_asset_to_file_table(
+                &mut file_writer,
+                &mut offset,
+                &mut file_table,
+                &entry.path,
+                entry.asset_data,
+                entry.compress,
+            );
         }
 
         let mut file_table_data = Vec::new();
@@ -115,15 +104,23 @@ fn add_asset_to_file_table(
     offset: &mut u32,
     file_table: &mut HashMap<String, FileTableRow>,
     path: &str,
-    data: &[u8],
+    data: Vec<u8>,
+    compress: bool,
 ) {
-    let mut encoder = ZlibEncoder::new(data, Compression::best());
-    let mut compressed = Vec::default();
-    encoder.read_to_end(&mut compressed).expect("can't compress asset data");
-
-    let compressed_size = compressed.len() as u32;
-    let compressed_size_aligned = compressed_size;
     let uncompressed_size = data.len() as u32;
+
+    let data = match compress {
+        true => {
+            let mut encoder = ZlibEncoder::new(data.as_slice(), Compression::best());
+            let mut compressed = Vec::default();
+            encoder.read_to_end(&mut compressed).expect("can't compress asset data");
+            compressed
+        }
+        false => data,
+    };
+
+    let compressed_size = data.len() as u32;
+    let compressed_size_aligned = compressed_size;
     let flags = 1;
 
     let file_information = FileTableRow {
@@ -134,8 +131,8 @@ fn add_asset_to_file_table(
         flags,
         offset: *offset,
     };
-    *offset = offset.checked_add(compressed.len() as u32).expect("offset overflow");
+    *offset = offset.checked_add(data.len() as u32).expect("offset overflow");
 
     file_table.insert(path.to_string(), file_information);
-    file_writer.write_all(&compressed).unwrap()
+    file_writer.write_all(&data).unwrap()
 }
