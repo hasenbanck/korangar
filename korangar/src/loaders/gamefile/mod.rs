@@ -25,7 +25,7 @@ const LUA_GRF_FILE_NAME: &str = "lua_files.grf";
 /// This string is used to derive an initialization vector for the game file
 /// hash calculation. We can use this to trigger a de-sync of the cache files of
 /// users.
-const GAME_FILE_DERIVE_KEY: &str = "korangar v0";
+const GAME_FILE_DERIVE_KEY: &str = "korangar 2025-02-18 19:20:03 game file key v1";
 
 struct LoaderArchive {
     archive: Box<dyn Archive>,
