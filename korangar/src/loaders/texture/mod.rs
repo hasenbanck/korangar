@@ -706,6 +706,7 @@ impl UncompressedTextureAtlas {
             lookup,
             allocations,
             image: CachedTextureAtlasImage {
+                format: 0,
                 width,
                 height,
                 mipmaps_count: MIP_LEVELS,

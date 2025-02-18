@@ -134,7 +134,7 @@ impl Cache {
             };
         }
 
-        let hash_string = format!("{:x?}", game_file_hash.as_bytes());
+        let hash_string = game_file_hash.to_hex();
         archive.add_asset(HASH_FILE_PATH, hash_string.as_bytes().to_vec(), false);
 
         archive
@@ -231,6 +231,9 @@ impl ToBytes for CachedTextureAtlas {
 
 #[derive(ToBytes, FromBytes)]
 pub struct CachedTextureAtlasImage {
+    /// Reserved format specifier, which is currently set to 0 to always use
+    /// BC7.
+    pub format: u32,
     pub width: u32,
     pub height: u32,
     pub mipmaps_count: u32,
