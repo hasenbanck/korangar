@@ -11,7 +11,6 @@ use korangar_util::texture_atlas::{AllocationId, AtlasAllocation};
 use ragnarok_bytes::{ByteReader, ConversionResult, ConversionResultExt, FromBytes, ToBytes};
 
 use crate::loaders::archive::folder::FolderArchive;
-use crate::loaders::archive::native::NativeArchive;
 use crate::loaders::archive::{Archive, Writable};
 use crate::loaders::{GameFileLoader, MapLoader, ModelLoader, TextureAtlasEntry, TextureLoader};
 
@@ -80,9 +79,9 @@ impl Cache {
             #[cfg(feature = "debug")]
             print_debug!("Converting to GRF archive");
 
-            archive.save_as_native_archive(&file_path);
+            let native_archive = archive.save_as_native_archive(&file_path);
 
-            Box::new(NativeArchive::from_path(&file_path))
+            Box::new(native_archive)
         };
 
         Self { texture_loader, archive }

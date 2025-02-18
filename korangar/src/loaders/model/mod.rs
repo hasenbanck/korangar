@@ -272,6 +272,21 @@ impl ModelLoader {
             .for_each(|child_node| Self::calculate_transformation_matrix(child_node, false, bounding_box, node.transform_matrix));
     }
 
+    pub fn register_model_textures(&self, texture_atlas: &mut impl TextureAtlas, model_file: &str) {
+        let Ok(bytes) = self.game_file_loader.get(&format!("data\\model\\{model_file}")) else {
+            return;
+        };
+        let mut byte_reader: ByteReader<Option<InternalVersion>> = ByteReader::with_default_metadata(&bytes);
+
+        let Ok(model_data) = ModelData::from_bytes(&mut byte_reader) else {
+            return;
+        };
+
+        model_data.texture_names.iter().for_each(|texture_name| {
+            let _ = texture_atlas.register(texture_name.as_ref());
+        });
+    }
+
     pub fn load(
         &self,
         texture_atlas: &mut dyn TextureAtlas,

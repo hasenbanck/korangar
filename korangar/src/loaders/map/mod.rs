@@ -22,7 +22,9 @@ pub use self::vertices::MAP_TILE_SIZE;
 use self::vertices::{generate_tile_vertices, ground_vertices};
 use super::error::LoadError;
 use crate::graphics::{Buffer, ModelVertex, NativeModelVertex, Texture};
-use crate::loaders::{CachedTextureAtlas, GameFileLoader, ImageType, ModelLoader, TextureAtlas, TextureLoader, UncompressedTextureAtlas};
+use crate::loaders::{
+    CachedTextureAtlas, GameFileLoader, ImageType, ModelLoader, TextureAtlas, TextureLoader, UncompressedTextureAtlas, FALLBACK_MODEL_FILE,
+};
 use crate::world::{LightSourceKey, Lighting, Model};
 use crate::{EffectSourceExt, LightSourceExt, Map, Object, ObjectKey, SoundSourceExt};
 
@@ -73,12 +75,10 @@ impl MapLoader {
             let _ = texture_atlas.register(texture_name);
         });
 
-        map_data.resources.objects.iter().for_each(|object_data| {
-            let mut offset = 0;
+        model_loader.register_model_textures(&mut texture_atlas, FALLBACK_MODEL_FILE);
 
-            let (..) = model_loader
-                .load(&mut texture_atlas, &mut offset, object_data.model_name.as_str(), false)
-                .expect("can't find model");
+        map_data.resources.objects.iter().for_each(|object_data| {
+            model_loader.register_model_textures(&mut texture_atlas, object_data.model_name.as_str());
         });
 
         texture_atlas.build_atlas();

@@ -56,12 +56,13 @@ impl Writable for NativeArchiveBuilder {
         });
     }
 
-    fn save(&mut self) {
-        let mut file_writer = BufWriter::new(File::create(self.os_file_path.as_path()).unwrap());
+    fn save(&mut self) -> Result<(), std::io::Error> {
+        let file = File::create(self.os_file_path.as_path())?;
+        let mut file_writer = BufWriter::new(file);
         let mut file_table = FileTable::new();
 
         let dummy_header_bytes = vec![0; Header::size_in_bytes()];
-        file_writer.write_all(&dummy_header_bytes).expect("unable to write file");
+        file_writer.write_all(&dummy_header_bytes)?;
 
         let mut offset = 0;
 
@@ -71,7 +72,7 @@ impl Writable for NativeArchiveBuilder {
                     add_asset_to_file_table(&mut file_writer, &mut offset, &mut file_table, &entry.path, &data);
                 }
                 ArchiveEntry::File(path) => {
-                    let data = fs::read(path).expect("can't read file to archive");
+                    let data = fs::read(path)?;
                     add_asset_to_file_table(&mut file_writer, &mut offset, &mut file_table, &entry.path, &data);
                 }
             }
@@ -83,9 +84,9 @@ impl Writable for NativeArchiveBuilder {
             file_table_data.extend(file_information.to_bytes().unwrap());
         }
 
-        let mut encoder = ZlibEncoder::new(file_table_data.as_slice(), Compression::best());
+        let mut encoder = ZlibEncoder::new(file_table_data.as_slice(), Compression::new(5));
         let mut compressed = Vec::default();
-        encoder.read_to_end(&mut compressed).expect("can't compress file information");
+        encoder.read_to_end(&mut compressed)?;
 
         let asset_table = AssetTable {
             compressed_size: compressed.len() as u32,
@@ -93,17 +94,19 @@ impl Writable for NativeArchiveBuilder {
         };
 
         let file_table_bytes = asset_table.to_bytes().unwrap();
-        file_writer.write_all(&file_table_bytes).expect("unable to write file");
-        file_writer.write_all(&compressed).expect("unable to write file");
+        file_writer.write_all(&file_table_bytes)?;
+        file_writer.write_all(&compressed)?;
 
         let reserved_files = 0;
         let raw_file_count = file_table.len() as u32 + 7;
         let version = 0x200;
         let file_header_bytes = Header::new(offset, reserved_files, raw_file_count, version).to_bytes().unwrap();
 
-        file_writer.seek(SeekFrom::Start(0)).expect("can't seek start of file");
-        file_writer.write_all(&file_header_bytes).expect("unable to write file");
-        file_writer.flush().expect("can't flush file writer");
+        file_writer.seek(SeekFrom::Start(0))?;
+        file_writer.write_all(&file_header_bytes)?;
+        file_writer.flush()?;
+
+        Ok(())
     }
 }
 
@@ -114,7 +117,7 @@ fn add_asset_to_file_table(
     path: &str,
     data: &[u8],
 ) {
-    let mut encoder = ZlibEncoder::new(data, Compression::best());
+    let mut encoder = ZlibEncoder::new(data, Compression::new(5));
     let mut compressed = Vec::default();
     encoder.read_to_end(&mut compressed).expect("can't compress asset data");
 

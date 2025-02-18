@@ -2,6 +2,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
+use std::io::Error;
 use std::path::{Path, PathBuf};
 
 use blake3::Hasher;
@@ -10,7 +11,7 @@ use korangar_debug::logging::print_debug;
 use walkdir::WalkDir;
 
 use super::{Archive, Writable};
-use crate::loaders::archive::native::NativeArchiveBuilder;
+use crate::loaders::archive::native::{NativeArchive, NativeArchiveBuilder};
 
 pub struct FolderArchive {
     folder_path: PathBuf,
@@ -54,7 +55,8 @@ impl FolderArchive {
             .collect()
     }
 
-    pub fn save_as_native_archive(&self, path: &Path) {
+    #[must_use]
+    pub fn save_as_native_archive(&self, path: &Path) -> NativeArchive {
         let mut builder = NativeArchiveBuilder::from_path(path);
 
         let mut files: Vec<(String, PathBuf)> = self
@@ -71,7 +73,9 @@ impl FolderArchive {
             builder.add_file(file, os_file_path)
         });
 
-        builder.save();
+        builder.save().expect("can't save native archive");
+
+        NativeArchive::from_path(path)
     }
 }
 
@@ -133,5 +137,9 @@ impl Writable for FolderArchive {
         fs::write(&full_path, file_data).unwrap_or_else(|_| panic!("error writing to file {}", full_path.display()));
 
         self.file_mapping.insert(file_path.to_string(), full_path);
+    }
+
+    fn save(&mut self) -> Result<(), Error> {
+        Ok(())
     }
 }
