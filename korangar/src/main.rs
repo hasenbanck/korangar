@@ -434,6 +434,7 @@ impl Client {
                 &map_loader,
                 &model_loader,
                 game_file_hash,
+                capabilities.supports_texture_compression(),
             ));
 
             let async_loader = Arc::new(AsyncLoader::new(

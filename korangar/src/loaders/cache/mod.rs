@@ -20,6 +20,7 @@ const MAP_FILE_EXTENSION: &str = ".rsw";
 // TODO: NHA Implement incremental update that verifies every cached file
 pub struct Cache {
     archive: Box<dyn Archive>,
+    texture_compression_supported: bool,
 }
 
 impl Cache {
@@ -29,10 +30,14 @@ impl Cache {
         map_loader: &MapLoader,
         model_loader: &ModelLoader,
         game_file_hash: Hash,
+        texture_compression_supported: bool,
     ) -> Self {
         let archive = Self::get_cache_archive(game_file_loader, texture_loader, map_loader, model_loader, game_file_hash);
 
-        Self { archive }
+        Self {
+            archive,
+            texture_compression_supported,
+        }
     }
 
     fn get_cache_archive(
@@ -145,6 +150,13 @@ impl Cache {
     }
 
     pub fn load_texture_atlas(&self, name: &str, add_padding: bool, create_mip_map: bool) -> Option<CachedTextureAtlas> {
+        // Cached textures can only be used, if the graphics card supports BC texture
+        // compression (desktop class GPUs have nearly 100% support for it, including
+        // M1+ GPUs).
+        if self.texture_compression_supported {
+            return None;
+        }
+
         let data_path = Self::get_texture_atlas_cache_base_path(name, add_padding, create_mip_map);
         let data = self.archive.get_file_by_path(&data_path)?;
 
