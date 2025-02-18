@@ -22,6 +22,11 @@ const LUA_GRF_FILE_NAME: &str = "lua_files/";
 #[cfg(not(feature = "patched_as_folder"))]
 const LUA_GRF_FILE_NAME: &str = "lua_files.grf";
 
+/// This string is used to derive an initialization vector for the game file
+/// hash calculation. We can use this to trigger a de-sync of the cache files of
+/// users.
+const GAME_FILE_DERIVE_KEY: &str = "korangar v0";
+
 struct LoaderArchive {
     archive: Box<dyn Archive>,
     is_game_archive: bool,
@@ -92,7 +97,7 @@ impl GameFileLoader {
     }
 
     pub fn calculate_hash(&self) -> Hash {
-        let mut hasher = blake3::Hasher::new();
+        let mut hasher = blake3::Hasher::new_derive_key(GAME_FILE_DERIVE_KEY);
         self.archives
             .read()
             .unwrap()
