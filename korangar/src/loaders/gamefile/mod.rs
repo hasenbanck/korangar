@@ -194,6 +194,6 @@ impl GameFileLoader {
             failed_count.red(),
         );
 
-        lua_archive.save().expect("can't save lua archive");
+        lua_archive.finish().expect("can't save lua archive");
     }
 }

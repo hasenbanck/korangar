@@ -40,7 +40,6 @@ sys-locale = { workspace = true }
 walkdir = { workspace = true }
 wgpu = { workspace = true, features = ["static-dxc"] }
 winit = { workspace = true }
-zstd = { workspace = true }
 
 [features]
 debug = ["korangar_debug", "korangar_audio/debug", "ragnarok_packets/debug"]

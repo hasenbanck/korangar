@@ -46,7 +46,7 @@ impl Writable for NativeArchiveBuilder {
         });
     }
 
-    fn save(&mut self) -> Result<(), std::io::Error> {
+    fn finish(&mut self) -> Result<(), std::io::Error> {
         let file = File::create(self.os_file_path.as_path())?;
         let mut file_writer = BufWriter::new(file);
         let mut file_table = FileTable::new();
@@ -73,7 +73,7 @@ impl Writable for NativeArchiveBuilder {
             file_table_data.extend(file_information.to_bytes().unwrap());
         }
 
-        let mut encoder = ZlibEncoder::new(file_table_data.as_slice(), Compression::best());
+        let mut encoder = ZlibEncoder::new(file_table_data.as_slice(), Compression::new(3));
         let mut compressed = Vec::default();
         encoder.read_to_end(&mut compressed)?;
 
@@ -111,7 +111,7 @@ fn add_asset_to_file_table(
 
     let data = match compress {
         true => {
-            let mut encoder = ZlibEncoder::new(data.as_slice(), Compression::best());
+            let mut encoder = ZlibEncoder::new(data.as_slice(), Compression::new(3));
             let mut compressed = Vec::default();
             encoder.read_to_end(&mut compressed).expect("can't compress asset data");
             compressed

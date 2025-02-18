@@ -429,10 +429,10 @@ impl Client {
             });
 
             let cache = Arc::new(Cache::new(
-                &game_file_loader,
+                game_file_loader.clone(),
                 texture_loader.clone(),
-                &map_loader,
-                &model_loader,
+                map_loader.clone(),
+                model_loader.clone(),
                 game_file_hash,
                 capabilities.supports_texture_compression(),
             ));

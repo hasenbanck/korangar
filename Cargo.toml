@@ -51,7 +51,6 @@ tokio = { version = "1", default-features = false }
 walkdir = "2"
 wgpu = "24"
 winit = "0.30"
-zstd = "0.13"
 
 [profile.release]
 lto = "thin"

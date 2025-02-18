@@ -6,7 +6,8 @@ use std::io::{Error, Read};
 use std::path::{Path, PathBuf};
 
 use blake3::Hasher;
-use flate2::bufread::GzDecoder;
+use flate2::bufread::{GzDecoder, GzEncoder};
+use flate2::Compression;
 #[cfg(feature = "debug")]
 use korangar_debug::logging::print_debug;
 use walkdir::WalkDir;
@@ -125,7 +126,7 @@ impl Writable for FolderArchive {
 
         let (path, data) = match compress {
             true => {
-                let mut encoder = flate2::bufread::GzEncoder::new(file_data.as_slice(), flate2::Compression::new(6));
+                let mut encoder = GzEncoder::new(file_data.as_slice(), Compression::new(3));
                 let mut compressed = Vec::default();
                 encoder.read_to_end(&mut compressed).unwrap();
 
@@ -144,7 +145,7 @@ impl Writable for FolderArchive {
         self.file_mapping.insert(file_path.to_string(), path);
     }
 
-    fn save(&mut self) -> Result<(), Error> {
+    fn finish(&mut self) -> Result<(), Error> {
         Ok(())
     }
 }

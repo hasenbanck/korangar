@@ -26,5 +26,5 @@ pub enum ArchiveType {
 /// A common trait to all writable archives.
 pub trait Writable {
     fn add_asset(&mut self, path: &str, asset: Vec<u8>, compress: bool);
-    fn save(&mut self) -> Result<(), std::io::Error>;
+    fn finish(&mut self) -> Result<(), std::io::Error>;
 }

@@ -1,5 +1,6 @@
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
+use std::thread;
 
 use blake3::Hash;
 use hashbrown::{HashMap, HashSet};
@@ -25,10 +26,10 @@ pub struct Cache {
 
 impl Cache {
     pub fn new(
-        game_file_loader: &GameFileLoader,
+        game_file_loader: Arc<GameFileLoader>,
         texture_loader: Arc<TextureLoader>,
-        map_loader: &MapLoader,
-        model_loader: &ModelLoader,
+        map_loader: Arc<MapLoader>,
+        model_loader: Arc<ModelLoader>,
         game_file_hash: Hash,
         texture_compression_supported: bool,
     ) -> Self {
@@ -41,10 +42,10 @@ impl Cache {
     }
 
     fn get_cache_archive(
-        game_file_loader: &GameFileLoader,
+        game_file_loader: Arc<GameFileLoader>,
         texture_loader: Arc<TextureLoader>,
-        map_loader: &MapLoader,
-        model_loader: &ModelLoader,
+        map_loader: Arc<MapLoader>,
+        model_loader: Arc<ModelLoader>,
         game_file_hash: Hash,
     ) -> Box<dyn Archive> {
         let folder_path = Path::new(CACHE_PATH_NAME);
@@ -78,61 +79,68 @@ impl Cache {
     }
 
     fn create_new_cache_folder(
-        game_file_loader: &GameFileLoader,
+        game_file_loader: Arc<GameFileLoader>,
         texture_loader: Arc<TextureLoader>,
-        map_loader: &MapLoader,
-        model_loader: &ModelLoader,
+        map_loader: Arc<MapLoader>,
+        model_loader: Arc<ModelLoader>,
         game_file_hash: Hash,
     ) -> Box<FolderArchive> {
-        let mut map_files = game_file_loader.get_files_with_extension(MAP_FILE_EXTENSION);
-        map_files.sort();
+        let (tx, rx) = mpsc::sync_channel(1);
 
-        #[cfg(feature = "debug")]
-        let map_count = map_files.len();
+        let gpu_compression = thread::spawn(move || {
+            let mut map_files = game_file_loader.get_files_with_extension(MAP_FILE_EXTENSION);
+            map_files.sort();
+
+            #[cfg(feature = "debug")]
+            let map_count = map_files.len();
+
+            for (_index, map_file) in map_files.iter().enumerate() {
+                let path = Path::new(&map_file);
+                let map_name = path.file_stem().unwrap().to_string_lossy().to_string();
+
+                let mut textures = HashSet::new();
+
+                match map_loader.collect_map_textures(&model_loader, &mut textures, &map_name) {
+                    Ok(_) => {
+                        let mut textures: Vec<String> = textures.into_iter().collect();
+                        textures.sort();
+
+                        let mut texture_atlas =
+                            UncompressedTextureAtlas::new(texture_loader.clone(), map_name.to_string(), true, true, true);
+                        textures.iter().for_each(|texture| {
+                            let _ = texture_atlas.register(texture);
+                        });
+
+                        texture_atlas.build_atlas();
+
+                        #[cfg(feature = "debug")]
+                        print_debug!(
+                            "Creating texture atlas for map `{}` ({} of {})",
+                            &map_name,
+                            _index + 1,
+                            map_count
+                        );
+
+                        if let Ok(data) = texture_atlas.to_cached_texture_atlas().to_bytes() {
+                            let atlas_file_path = Self::get_texture_atlas_cache_base_path(&map_name, true, true);
+                            tx.send((atlas_file_path, data)).ok();
+                        }
+                    }
+                    Err(_err) => {
+                        #[cfg(feature = "debug")]
+                        print_debug!("Error while creating texture atlas for map `{}`: {:?}", map_name, _err);
+                    }
+                };
+            }
+        });
 
         let mut archive = Box::new(FolderArchive::from_path(Path::new(CACHE_PATH_NAME)));
 
-        for (_index, map_file) in map_files.iter().enumerate() {
-            let path = Path::new(&map_file);
-            let map_name = path.file_stem().unwrap().to_string_lossy().to_string();
-
-            let mut textures = HashSet::new();
-
-            match map_loader.collect_map_textures(model_loader, &mut textures, &map_name) {
-                Ok(_) => {
-                    let mut textures: Vec<String> = textures.into_iter().collect();
-                    textures.sort();
-
-                    let mut texture_atlas = UncompressedTextureAtlas::new(texture_loader.clone(), map_name.to_string(), true, true, true);
-                    textures.iter().for_each(|texture| {
-                        let _ = texture_atlas.register(texture);
-                    });
-
-                    texture_atlas.build_atlas();
-
-                    #[cfg(feature = "debug")]
-                    print_debug!(
-                        "Creating texture atlas for map `{}`. {} of {} maps",
-                        &map_name,
-                        _index + 1,
-                        map_count
-                    );
-
-                    let data = texture_atlas
-                        .to_cached_texture_atlas()
-                        .to_bytes()
-                        .expect("can't convert cached texture atlas data to bytes");
-
-                    let atlas_file_path = Self::get_texture_atlas_cache_base_path(&map_name, true, true);
-
-                    archive.add_asset(&atlas_file_path, data, true);
-                }
-                Err(_err) => {
-                    #[cfg(feature = "debug")]
-                    print_debug!("Error while creating texture atlas for map `{}`: {:?}", map_name, _err);
-                }
-            };
+        while let Ok((atlas_file_path, data)) = rx.recv() {
+            archive.add_asset(&atlas_file_path, data, true);
         }
+
+        gpu_compression.join().unwrap();
 
         let hash_string = game_file_hash.to_hex();
         archive.add_asset(HASH_FILE_PATH, hash_string.as_bytes().to_vec(), false);
