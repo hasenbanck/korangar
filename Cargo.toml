@@ -63,6 +63,13 @@ walkdir = "2"
 wgpu = "27"
 winit = "0.30"
 
+[patch.crates-io]
+wgpu = { path = "../wgpu/wgpu" }
+wgpu-types = { path = "../wgpu/wgpu-types" }
+wgpu-core = { path = "../wgpu/wgpu-core" }
+wgpu-hal = { path = "../wgpu/wgpu-hal" }
+naga = { path = "../wgpu/naga" }
+
 [profile.release]
 lto = "thin"
 
