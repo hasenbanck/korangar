@@ -89,8 +89,9 @@ use wgpu::Device;
 use wgpu::util::initialize_adapter_from_env_or_default;
 use wgpu::wgt::{Dx12SwapchainKind, Dx12UseFrameLatencyWaitableObject};
 use wgpu::{
-    BackendOptions, Backends, DeviceDescriptor, Dx12BackendOptions, Dx12Compiler, ExperimentalFeatures, GlBackendOptions, GlFenceBehavior,
-    Gles3MinorVersion, Instance, InstanceDescriptor, InstanceFlags, MemoryBudgetThresholds, MemoryHints, NoopBackendOptions, Queue, Trace,
+    Backend, BackendOptions, Backends, DeviceDescriptor, Dx12BackendOptions, Dx12Compiler, ExperimentalFeatures, GlBackendOptions,
+    GlFenceBehavior, Gles3MinorVersion, Instance, InstanceDescriptor, InstanceFlags, MemoryBudgetThresholds, MemoryHints,
+    NoopBackendOptions, Queue, Trace,
 };
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalSize};
@@ -470,6 +471,8 @@ impl Client {
             });
 
             let adapter = pollster::block_on(async { initialize_adapter_from_env_or_default(&instance, None).await.unwrap() });
+            let adapter_info = adapter.get_info();
+            let use_shader_passthrough = adapter_info.backend == Backend::Vulkan;
 
             #[cfg(feature = "debug")]
             {
@@ -481,7 +484,7 @@ impl Client {
         });
 
         time_phase!("create device", {
-            let capabilities = Capabilities::from_adapter(&adapter);
+            let capabilities = Capabilities::from_adapter(&adapter, use_shader_passthrough);
 
             let (device, queue) = pollster::block_on(async {
                 adapter
@@ -489,7 +492,11 @@ impl Client {
                         label: None,
                         required_features: capabilities.get_required_features(),
                         required_limits: capabilities.get_required_limits(),
-                        experimental_features: ExperimentalFeatures::disabled(),
+                        experimental_features: if use_shader_passthrough {
+                            unsafe { ExperimentalFeatures::enabled() }
+                        } else {
+                            ExperimentalFeatures::disabled()
+                        },
                         memory_hints: MemoryHints::Performance,
                         trace: Trace::Off,
                     })
@@ -505,7 +512,7 @@ impl Client {
         });
 
         time_phase!("create shader compiler", {
-            let shader_compiler = ShaderCompiler::new(device.clone());
+            let shader_compiler = ShaderCompiler::new(device.clone(), use_shader_passthrough);
         });
 
         time_phase!("create game file loader", {

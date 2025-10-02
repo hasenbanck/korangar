@@ -35,7 +35,7 @@ pub struct Capabilities {
 }
 
 impl Capabilities {
-    pub fn from_adapter(adapter: &Adapter) -> Self {
+    pub fn from_adapter(adapter: &Adapter, use_shader_passthrough: bool) -> Self {
         let adapter_features = adapter.features();
         let adapter_limits = adapter.limits();
 
@@ -57,6 +57,10 @@ impl Capabilities {
             required_features: Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
             required_limits,
         };
+
+        if use_shader_passthrough {
+            capabilities.required_features |= Features::EXPERIMENTAL_PASSTHROUGH_SHADERS
+        }
 
         if capabilities.required_limits.max_texture_dimension_2d < MAX_TEXTURE_SIZE {
             capabilities.required_limits.max_texture_dimension_2d = MAX_TEXTURE_SIZE;

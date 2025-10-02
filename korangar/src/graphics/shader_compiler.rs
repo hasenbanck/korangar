@@ -3,7 +3,7 @@ use std::io::Cursor;
 
 use hashbrown::HashMap;
 use sevenz_rust2::{Archive, BlockDecoder, Password};
-use wgpu::{Device, ShaderModule, ShaderModuleDescriptor, ShaderSource};
+use wgpu::{Device, ShaderModule, ShaderModuleDescriptor, ShaderModuleDescriptorPassthrough, ShaderRuntimeChecks, ShaderSource};
 
 static ARCHIVE_DATA: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/shaders_compiled/shaders.7z"));
 
@@ -16,13 +16,14 @@ struct FileEntry {
 
 pub struct ShaderCompiler {
     device: Device,
+    use_shader_passthrough: bool,
     files: HashMap<String, FileEntry>,
     archive: Archive,
     password: Password,
 }
 
 impl ShaderCompiler {
-    pub fn new(device: Device) -> Self {
+    pub fn new(device: Device, use_shader_passthrough: bool) -> Self {
         let password = Password::empty();
         let archive = Archive::read(&mut Cursor::new(ARCHIVE_DATA), &password).expect("failed to read archive");
         let mut files = HashMap::with_capacity(archive.files.len());
@@ -51,6 +52,7 @@ impl ShaderCompiler {
 
         Self {
             device,
+            use_shader_passthrough,
             files,
             archive,
             password,
@@ -59,6 +61,7 @@ impl ShaderCompiler {
 
     pub fn create_shader_module(&self, folder: &str, name: &str) -> ShaderModule {
         let path = format!("{folder}/{name}.spv");
+        let shader_name = format!("{folder}/{name}");
 
         let file_entry = *self
             .files
@@ -86,9 +89,25 @@ impl ShaderCompiler {
 
         assert!(found, "failed to read shader data for {folder}/{name}");
 
-        self.device.create_shader_module(ShaderModuleDescriptor {
-            label: Some(&format!("{folder}/{name}")),
-            source: ShaderSource::SpirV(Cow::Owned(aligned_data)),
-        })
+        match self.use_shader_passthrough {
+            true => unsafe {
+                self.device.create_shader_module_passthrough(ShaderModuleDescriptorPassthrough {
+                    entry_point: String::new(),
+                    label: Some(&shader_name),
+                    num_workgroups: (0, 0, 0),
+                    runtime_checks: ShaderRuntimeChecks::unchecked(),
+                    spirv: Some(Cow::Owned(aligned_data)),
+                    dxil: None,
+                    msl: None,
+                    hlsl: None,
+                    glsl: None,
+                    wgsl: None,
+                })
+            },
+            false => self.device.create_shader_module(ShaderModuleDescriptor {
+                label: Some(&shader_name),
+                source: ShaderSource::SpirV(Cow::Owned(aligned_data)),
+            }),
+        }
     }
 }
