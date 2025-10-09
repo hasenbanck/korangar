@@ -151,6 +151,7 @@ impl Default for GraphicsSettingsCapabilities {
                 ShadowQuality::SoftPCSSx16,
                 ShadowQuality::SoftPCSSx32,
                 ShadowQuality::SoftPCSSx64,
+                ShadowQuality::SoftEVSM,
             ],
             shadow_detail_options: vec![ShadowDetail::Normal, ShadowDetail::Ultra, ShadowDetail::Insane],
             vsync_setting_disabled: true,

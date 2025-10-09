@@ -20,8 +20,8 @@ use winit::window::Window;
 use super::BindlessSupport;
 use super::{
     AntiAliasingResources, Capabilities, DirectionalShadowPartition, FramePacer, FrameStage, GlobalContext, LimitFramerate, Msaa,
-    PARTITION_COUNT, Partition, Prepare, PresentModeInfo, RENDER_TO_TEXTURE_FORMAT, ScreenSpaceAntiAliasing, ShadowDetail, Ssaa, Surface,
-    TextureSamplerType,
+    PARTITION_COUNT, Partition, Prepare, PresentModeInfo, RENDER_TO_TEXTURE_FORMAT, ScreenSpaceAntiAliasing, ShadowDetail, ShadowQuality,
+    Ssaa, Surface, TextureSamplerType,
 };
 use crate::graphics::ScreenSize;
 use crate::graphics::instruction::RenderInstruction;
@@ -81,6 +81,8 @@ struct EngineContext {
     interface_render_pass_context: InterfaceRenderPassContext,
     picker_render_pass_context: PickerRenderPassContext,
     directional_shadow_pass_context: DirectionalShadowRenderPassContext,
+    directional_shadow_evsm_pass_context: DirectionalShadowEvsmRenderPassContext,
+    evsm_blur_pass_context: EvsmBlurRenderPassContext,
     point_shadow_pass_context: PointShadowRenderPassContext,
     light_culling_pass_context: LightCullingPassContext,
     forward_pass_context: ForwardRenderPassContext,
@@ -94,6 +96,9 @@ struct EngineContext {
     directional_shadow_model_drawer: DirectionalShadowModelDrawer,
     directional_shadow_entity_drawer: DirectionalShadowEntityDrawer,
     directional_shadow_indicator_drawer: DirectionalShadowIndicatorDrawer,
+    directional_shadow_evsm_model_drawer: DirectionalShadowEvsmModelDrawer,
+    directional_shadow_evsm_entity_drawer: DirectionalShadowEvsmEntityDrawer,
+    directional_shadow_evsm_indicator_drawer: DirectionalShadowEvsmIndicatorDrawer,
     point_shadow_entity_drawer: PointShadowEntityDrawer,
     point_shadow_model_drawer: PointShadowModelDrawer,
     point_shadow_indicator_drawer: PointShadowIndicatorDrawer,
@@ -113,6 +118,7 @@ struct EngineContext {
     post_processing_blitter_drawer: PostProcessingBlitterDrawer,
     post_processing_rectangle_drawer: PostProcessingRectangleDrawer,
     post_processing_wboit_resolve_drawer: PostProcessingWboitResolveDrawer,
+    evsm_blur_drawer: EvsmBlurDrawer,
     screen_blit_blitter_drawer: ScreenBlitBlitterDrawer,
     #[cfg(feature = "debug")]
     debug_aabb_drawer: DebugAabbDrawer,
@@ -232,6 +238,10 @@ impl GraphicsEngine {
                             PickerRenderPassContext::new(&self.device, &self.queue, &self.texture_loader, &global_context);
                         let directional_shadow_pass_context =
                             DirectionalShadowRenderPassContext::new(&self.device, &self.queue, &self.texture_loader, &global_context);
+                        let directional_shadow_evsm_pass_context =
+                            DirectionalShadowEvsmRenderPassContext::new(&self.device, &self.queue, &self.texture_loader, &global_context);
+                        let evsm_blur_pass_context =
+                            EvsmBlurRenderPassContext::new(&self.device, &self.queue, &self.texture_loader, &global_context);
                         let point_shadow_pass_context =
                             PointShadowRenderPassContext::new(&self.device, &self.queue, &self.texture_loader, &global_context);
                         let light_culling_pass_context = LightCullingPassContext::new(&self.device, &self.queue, &global_context);
@@ -292,6 +302,30 @@ impl GraphicsEngine {
                             &self.shader_compiler,
                             &global_context,
                             &directional_shadow_pass_context,
+                        );
+                        let directional_shadow_evsm_model_drawer = DirectionalShadowEvsmModelDrawer::new(
+                            &self.capabilities,
+                            &self.device,
+                            &self.queue,
+                            &self.shader_compiler,
+                            &global_context,
+                            &directional_shadow_evsm_pass_context,
+                        );
+                        let directional_shadow_evsm_entity_drawer = DirectionalShadowEvsmEntityDrawer::new(
+                            &self.capabilities,
+                            &self.device,
+                            &self.queue,
+                            &self.shader_compiler,
+                            &global_context,
+                            &directional_shadow_evsm_pass_context,
+                        );
+                        let directional_shadow_evsm_indicator_drawer = DirectionalShadowEvsmIndicatorDrawer::new(
+                            &self.capabilities,
+                            &self.device,
+                            &self.queue,
+                            &self.shader_compiler,
+                            &global_context,
+                            &directional_shadow_evsm_pass_context,
                         );
                         let point_shadow_model_drawer = PointShadowModelDrawer::new(
                             &self.capabilities,
@@ -415,6 +449,14 @@ impl GraphicsEngine {
                             &global_context,
                             &post_processing_pass_context,
                         );
+                        let evsm_blur_drawer = EvsmBlurDrawer::new(
+                            &self.capabilities,
+                            &self.device,
+                            &self.queue,
+                            &self.shader_compiler,
+                            &global_context,
+                            &evsm_blur_pass_context,
+                        );
                         let screen_blit_blitter_drawer = ScreenBlitBlitterDrawer::new(
                             &self.capabilities,
                             &self.device,
@@ -439,6 +481,8 @@ impl GraphicsEngine {
                         interface_render_pass_context,
                         picker_render_pass_context,
                         directional_shadow_pass_context,
+                        directional_shadow_evsm_pass_context,
+                        evsm_blur_pass_context,
                         point_shadow_pass_context,
                         light_culling_pass_context,
                         forward_pass_context,
@@ -451,6 +495,10 @@ impl GraphicsEngine {
                         directional_shadow_model_drawer,
                         directional_shadow_entity_drawer,
                         directional_shadow_indicator_drawer,
+                        directional_shadow_evsm_model_drawer,
+                        directional_shadow_evsm_entity_drawer,
+                        directional_shadow_evsm_indicator_drawer,
+                        evsm_blur_drawer,
                         point_shadow_model_drawer,
                         point_shadow_indicator_drawer,
                         point_shadow_entity_drawer,
@@ -638,6 +686,15 @@ impl GraphicsEngine {
             engine_context.post_processing_blitter_drawer = post_processing_blitter_drawer;
             engine_context.post_processing_rectangle_drawer = post_processing_rectangle_drawer;
             engine_context.post_processing_wboit_resolve_drawer = post_processing_wboit_resolve_drawer;
+
+            engine_context.evsm_blur_drawer = EvsmBlurDrawer::new(
+                &self.capabilities,
+                &self.device,
+                &self.queue,
+                &self.shader_compiler,
+                &engine_context.global_context,
+                &engine_context.evsm_blur_pass_context,
+            );
 
             engine_context.water_wave_drawer = WaterWaveDrawer::new(
                 &self.capabilities,
@@ -942,8 +999,16 @@ impl GraphicsEngine {
         // We spawn a task for all the potentially long-running prepare functions.
         self.thread_pool.in_place_scope(|scope| {
             scope.spawn(|_| {
-                context.directional_shadow_entity_drawer.prepare(&self.device, instruction);
-                context.directional_shadow_model_drawer.prepare(&self.device, instruction);
+                match instruction.uniforms.shadow_quality {
+                    ShadowQuality::SoftEVSM => {
+                        context.directional_shadow_evsm_entity_drawer.prepare(&self.device, instruction);
+                        context.directional_shadow_evsm_model_drawer.prepare(&self.device, instruction);
+                    }
+                    _ => {
+                        context.directional_shadow_entity_drawer.prepare(&self.device, instruction);
+                        context.directional_shadow_model_drawer.prepare(&self.device, instruction);
+                    }
+                }
             });
             scope.spawn(|_| {
                 context.forward_entity_drawer.prepare(&self.device, instruction);
@@ -975,6 +1040,7 @@ impl GraphicsEngine {
             scope.spawn(|_| {
                 context.global_context.prepare(&self.device, instruction);
                 context.directional_shadow_pass_context.prepare(&self.device, instruction);
+                context.directional_shadow_evsm_pass_context.prepare(&self.device, instruction);
                 context.point_shadow_pass_context.prepare(&self.device, instruction);
                 context.picker_entity_drawer.prepare(&self.device, instruction);
             });
@@ -988,9 +1054,18 @@ impl GraphicsEngine {
             encoder: &mut encoder,
         };
 
-        visitor.upload(&mut context.directional_shadow_entity_drawer);
-        visitor.upload(&mut context.directional_shadow_model_drawer);
+        match instruction.uniforms.shadow_quality {
+            ShadowQuality::SoftEVSM => {
+                visitor.upload(&mut context.directional_shadow_evsm_entity_drawer);
+                visitor.upload(&mut context.directional_shadow_evsm_model_drawer);
+            }
+            _ => {
+                visitor.upload(&mut context.directional_shadow_entity_drawer);
+                visitor.upload(&mut context.directional_shadow_model_drawer);
+            }
+        }
         visitor.upload(&mut context.directional_shadow_pass_context);
+        visitor.upload(&mut context.directional_shadow_evsm_pass_context);
         visitor.upload(&mut context.global_context);
         visitor.upload(&mut context.interface_rectangle_drawer);
         visitor.upload(&mut context.picker_entity_drawer);
@@ -1112,34 +1187,109 @@ impl GraphicsEngine {
 
             // Directional Shadow Caster Passes
             scope.spawn(|_| {
-                for partition_index in 0..PARTITION_COUNT {
-                    let mut render_pass = engine_context.directional_shadow_pass_context.create_pass(
-                        &mut directional_shadow_encoder,
-                        &engine_context.global_context,
-                        partition_index,
-                    );
-
-                    if let Some(batches) = instruction.directional_shadow_model_batches.get(partition_index) {
-                        let draw_data = ModelBatchDrawData {
-                            batches,
-                            instructions: instruction.directional_shadow_models,
-                            #[cfg(feature = "debug")]
-                            show_wireframe: false,
-                        };
-                        engine_context.directional_shadow_model_drawer.draw(&mut render_pass, draw_data);
-                    }
-
-                    engine_context
-                        .directional_shadow_indicator_drawer
-                        .draw(&mut render_pass, instruction.indicator.as_ref());
-
-                    if let Some(entity_instructions) = instruction.directional_shadow_entities.get(partition_index) {
-                        engine_context
-                            .directional_shadow_entity_drawer
-                            .draw(&mut render_pass, DirectionalShadowEntityDrawData {
+                match instruction.uniforms.shadow_quality {
+                    ShadowQuality::SoftEVSM => {
+                        for partition_index in 0..PARTITION_COUNT {
+                            let mut render_pass = engine_context.directional_shadow_evsm_pass_context.create_pass(
+                                &mut directional_shadow_encoder,
+                                &engine_context.global_context,
                                 partition_index,
-                                instructions: entity_instructions,
-                            });
+                            );
+
+                            if let Some(batches) = instruction.directional_shadow_model_batches.get(partition_index) {
+                                let draw_data = ModelBatchDrawData {
+                                    batches,
+                                    instructions: instruction.directional_shadow_models,
+                                    #[cfg(feature = "debug")]
+                                    show_wireframe: false,
+                                };
+                                engine_context
+                                    .directional_shadow_evsm_model_drawer
+                                    .draw(&mut render_pass, draw_data);
+                            }
+
+                            engine_context
+                                .directional_shadow_evsm_indicator_drawer
+                                .draw(&mut render_pass, instruction.indicator.as_ref());
+
+                            if let Some(entity_instructions) = instruction.directional_shadow_entities.get(partition_index) {
+                                engine_context.directional_shadow_evsm_entity_drawer.draw(
+                                    &mut render_pass,
+                                    DirectionalShadowEvsmEntityDrawData {
+                                        partition_index,
+                                        instructions: entity_instructions,
+                                    },
+                                );
+                            }
+                        }
+
+                        // EVSM blur passes
+                        for partition_index in 0..PARTITION_COUNT {
+                            // Horizontal blur: moment -> intermediate
+                            {
+                                let mut render_pass = engine_context.evsm_blur_pass_context.create_pass(
+                                    &mut directional_shadow_encoder,
+                                    &engine_context.global_context,
+                                    engine_context
+                                        .global_context
+                                        .directional_evsm_blur_intermediate_texture
+                                        .get_array_texture_view(partition_index),
+                                );
+                                engine_context.evsm_blur_drawer.draw(&mut render_pass, EvsmBlurDrawData {
+                                    direction: EvsmBlurDirection::Horizontal,
+                                    input_bind_group: &engine_context.global_context.directional_evsm_moment_bind_groups[partition_index],
+                                });
+                            }
+
+                            // Vertical blur: intermediate -> moment
+                            {
+                                let mut render_pass = engine_context.evsm_blur_pass_context.create_pass(
+                                    &mut directional_shadow_encoder,
+                                    &engine_context.global_context,
+                                    engine_context
+                                        .global_context
+                                        .directional_evsm_moment_texture
+                                        .get_array_texture_view(partition_index),
+                                );
+                                engine_context.evsm_blur_drawer.draw(&mut render_pass, EvsmBlurDrawData {
+                                    direction: EvsmBlurDirection::Vertical,
+                                    input_bind_group: &engine_context.global_context.directional_evsm_blur_intermediate_bind_groups
+                                        [partition_index],
+                                });
+                            }
+                        }
+                    }
+                    _ => {
+                        for partition_index in 0..PARTITION_COUNT {
+                            let mut render_pass = engine_context.directional_shadow_pass_context.create_pass(
+                                &mut directional_shadow_encoder,
+                                &engine_context.global_context,
+                                partition_index,
+                            );
+
+                            if let Some(batches) = instruction.directional_shadow_model_batches.get(partition_index) {
+                                let draw_data = ModelBatchDrawData {
+                                    batches,
+                                    instructions: instruction.directional_shadow_models,
+                                    #[cfg(feature = "debug")]
+                                    show_wireframe: false,
+                                };
+                                engine_context.directional_shadow_model_drawer.draw(&mut render_pass, draw_data);
+                            }
+
+                            engine_context
+                                .directional_shadow_indicator_drawer
+                                .draw(&mut render_pass, instruction.indicator.as_ref());
+
+                            if let Some(entity_instructions) = instruction.directional_shadow_entities.get(partition_index) {
+                                engine_context
+                                    .directional_shadow_entity_drawer
+                                    .draw(&mut render_pass, DirectionalShadowEntityDrawData {
+                                        partition_index,
+                                        instructions: entity_instructions,
+                                    });
+                            }
+                        }
                     }
                 }
             });

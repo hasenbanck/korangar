@@ -373,6 +373,10 @@ pub(crate) struct GlobalContext {
     pub(crate) supersampled_color_texture: Option<AttachmentTexture>,
     pub(crate) interface_buffer_texture: AttachmentTexture,
     pub(crate) directional_shadow_map_texture: AttachmentTexture,
+    pub(crate) directional_evsm_moment_texture: AttachmentTexture,
+    pub(crate) directional_evsm_blur_intermediate_texture: AttachmentTexture,
+    pub(crate) directional_evsm_moment_bind_groups: [BindGroup; PARTITION_COUNT],
+    pub(crate) directional_evsm_blur_intermediate_bind_groups: [BindGroup; PARTITION_COUNT],
     pub(crate) point_shadow_map_textures: CubeArrayTexture,
     pub(crate) tile_light_count_texture: StorageTexture,
     pub(crate) global_uniforms_buffer: Buffer<GlobalUniforms>,
@@ -585,6 +589,7 @@ impl Prepare for GlobalContext {
                 &self.point_shadow_map_textures,
                 &self.directional_light_partitions_buffer,
                 &self.kernel_uniforms_buffer,
+                &self.directional_evsm_moment_texture,
             );
 
             self.sdsm_bind_group = Self::create_sdsm_bind_group(
@@ -655,6 +660,8 @@ impl GlobalContext {
         let forward_textures = Self::create_forward_textures(device, forward_size, msaa);
         let picker_textures = Self::create_picker_textures(device, screen_size);
         let directional_shadow_map_texture = Self::create_directional_shadow_textures(device, directional_shadow_size);
+        let directional_evsm_moment_texture = Self::create_directional_evsm_textures(device, directional_shadow_size);
+        let directional_evsm_blur_intermediate_texture = Self::create_directional_evsm_textures(device, directional_shadow_size);
         let point_shadow_map_textures = Self::create_point_shadow_textures(device, point_shadow_size);
         let resolved_color_texture = Self::create_resolved_color_texture(device, forward_size, msaa);
         let supersampled_color_texture = Self::create_supersampled_texture(device, screen_size, ssaa);
@@ -775,6 +782,7 @@ impl GlobalContext {
             &point_shadow_map_textures,
             &directional_light_partitions_buffer,
             &kernel_uniforms_buffer,
+            &directional_evsm_moment_texture,
         );
 
         let sdsm_bind_group = Self::create_sdsm_bind_group(
@@ -800,6 +808,10 @@ impl GlobalContext {
             &partition_data_buffer,
         );
 
+        let directional_evsm_moment_bind_groups = Self::create_evsm_array_layer_bind_groups(device, &directional_evsm_moment_texture);
+        let directional_evsm_blur_intermediate_bind_groups =
+            Self::create_evsm_array_layer_bind_groups(device, &directional_evsm_blur_intermediate_texture);
+
         Self {
             surface_texture_format,
             msaa,
@@ -818,6 +830,10 @@ impl GlobalContext {
             supersampled_color_texture,
             interface_buffer_texture,
             directional_shadow_map_texture,
+            directional_evsm_moment_texture,
+            directional_evsm_blur_intermediate_texture,
+            directional_evsm_moment_bind_groups,
+            directional_evsm_blur_intermediate_bind_groups,
             point_shadow_map_textures,
             tile_light_count_texture: forward_textures.tile_light_count_texture,
             global_uniforms_buffer,
@@ -971,6 +987,17 @@ impl GlobalContext {
         )
     }
 
+    fn create_directional_evsm_textures(device: &Device, shadow_size: ScreenSize) -> AttachmentTexture {
+        let shadow_factory = AttachmentTextureFactory::new(device, shadow_size, 1, None);
+
+        shadow_factory.new_attachment_array(
+            "directional EVSM moment map",
+            TextureFormat::Rgba32Float,
+            AttachmentTextureType::ColorAttachment,
+            PARTITION_COUNT as u32,
+        )
+    }
+
     fn create_tile_light_indices_buffer(device: &Device, forward_size: ScreenSize) -> Buffer<TileLightIndices> {
         let (tile_count_x, tile_count_y) = calculate_light_tile_count(forward_size);
 
@@ -1074,6 +1101,7 @@ impl GlobalContext {
             &self.point_shadow_map_textures,
             &self.directional_light_partitions_buffer,
             &self.kernel_uniforms_buffer,
+            &self.directional_evsm_moment_texture,
         );
 
         self.sdsm_bind_group = Self::create_sdsm_bind_group(
@@ -1107,7 +1135,13 @@ impl GlobalContext {
         self.point_shadow_size = ScreenSize::uniform(shadow_detail.point_shadow_resolution() as f32);
 
         self.directional_shadow_map_texture = Self::create_directional_shadow_textures(device, self.directional_shadow_size);
+        self.directional_evsm_moment_texture = Self::create_directional_evsm_textures(device, self.directional_shadow_size);
+        self.directional_evsm_blur_intermediate_texture = Self::create_directional_evsm_textures(device, self.directional_shadow_size);
         self.point_shadow_map_textures = Self::create_point_shadow_textures(device, self.point_shadow_size);
+
+        self.directional_evsm_moment_bind_groups = Self::create_evsm_array_layer_bind_groups(device, &self.directional_evsm_moment_texture);
+        self.directional_evsm_blur_intermediate_bind_groups =
+            Self::create_evsm_array_layer_bind_groups(device, &self.directional_evsm_blur_intermediate_texture);
 
         // We need to update this bind group, because it's content changed, and it isn't
         // re-created each frame.
@@ -1121,6 +1155,7 @@ impl GlobalContext {
             &self.point_shadow_map_textures,
             &self.directional_light_partitions_buffer,
             &self.kernel_uniforms_buffer,
+            &self.directional_evsm_moment_texture,
         );
 
         #[cfg(feature = "debug")]
@@ -1389,6 +1424,16 @@ impl GlobalContext {
                         },
                         count: None,
                     },
+                    BindGroupLayoutEntry {
+                        binding: 8,
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: BindingType::Texture {
+                            sample_type: TextureSampleType::Float { filterable: true },
+                            view_dimension: TextureViewDimension::D2Array,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
                 ],
             })
         })
@@ -1615,6 +1660,26 @@ impl GlobalContext {
         })
     }
 
+    fn create_evsm_array_layer_bind_groups(device: &Device, texture: &AttachmentTexture) -> [BindGroup; PARTITION_COUNT] {
+        let layout = AttachmentTexture::bind_group_layout(
+            device,
+            TextureViewDimension::D2,
+            TextureSampleType::Float { filterable: true },
+            false,
+        );
+
+        std::array::from_fn(|partition_index| {
+            device.create_bind_group(&BindGroupDescriptor {
+                label: Some(&format!("EVSM array layer {}", partition_index)),
+                layout: &layout,
+                entries: &[BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::TextureView(texture.get_array_texture_view(partition_index)),
+                }],
+            })
+        })
+    }
+
     fn create_forward_bind_group(
         device: &Device,
         directional_light_uniforms_buffer: &Buffer<DirectionalLightUniforms>,
@@ -1625,6 +1690,7 @@ impl GlobalContext {
         point_shadow_maps_texture: &CubeArrayTexture,
         directional_light_partition: &Buffer<DirectionalLightPartition>,
         kernel_uniforms_buffer: &Buffer<KernelUniforms>,
+        directional_evsm_moment_texture: &AttachmentTexture,
     ) -> BindGroup {
         device.create_bind_group(&BindGroupDescriptor {
             label: Some("forward"),
@@ -1661,6 +1727,10 @@ impl GlobalContext {
                 BindGroupEntry {
                     binding: 7,
                     resource: kernel_uniforms_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 8,
+                    resource: BindingResource::TextureView(directional_evsm_moment_texture.get_texture_view()),
                 },
             ],
         })

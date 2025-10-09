@@ -103,6 +103,7 @@ pub enum ShadowQuality {
     SoftPCSSx16,
     SoftPCSSx32,
     SoftPCSSx64,
+    SoftEVSM,
 }
 
 impl DropDownItem<ShadowQuality> for ShadowQuality {
@@ -114,6 +115,7 @@ impl DropDownItem<ShadowQuality> for ShadowQuality {
             Self::SoftPCSSx16 => "Soft (PCSS x16)",
             Self::SoftPCSSx32 => "Soft (PCSS x32)",
             Self::SoftPCSSx64 => "Soft (PCSS x64)",
+            Self::SoftEVSM => "Soft (EVSM)",
         }
     }
 
@@ -131,6 +133,7 @@ impl From<ShadowQuality> for u32 {
             ShadowQuality::SoftPCSSx16 => 3,
             ShadowQuality::SoftPCSSx32 => 4,
             ShadowQuality::SoftPCSSx64 => 5,
+            ShadowQuality::SoftEVSM => 6,
         }
     }
 }

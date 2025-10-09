@@ -38,6 +38,7 @@ struct ModelVertexOutput {
 [[vk::binding(5, 1)]] var point_shadow_maps: DepthTextureCubeArray;
 [[vk::binding(6, 1)]] var directional_light_partitions: StructuredBuffer<DirectionalLightPartition>;
 [[vk::binding(7, 1)]] var kernel_uniforms: ConstantBuffer<KernelUniforms>;
+[[vk::binding(8, 1)]] var evsm_moments: Texture2DArray;
 [[vk::binding(0, 2)]] var instance_data: StructuredBuffer<ModelInstanceData>;
 [[vk::binding(0, 3)]] var texture: Texture2D;
 
@@ -137,16 +138,22 @@ func fragment(input: ModelVertexOutput) -> float4 {
             }
         }
 
-        let offset_scales = get_shadow_offsets(normal, light_direction);
-        let displacement_N = offset_scales.x * normal * SHADOW_OFFSET_NORMAL;
-        let displacement_L = offset_scales.y * light_direction * SHADOW_OFFSET_LIGHT;
-        let biased_world_position = input.world_position + float4(displacement_N + displacement_L, 0.0);
+        var shadow_world_position = input.world_position;
 
-        let shadow_position = mul(directional_light_partitions[partition_index].view_projection, biased_world_position);
+        // For EVSM, skip displacement and bias.
+        if (global_uniforms.shadow_quality != 6) {
+            let offset_scales = get_shadow_offsets(normal, light_direction);
+            let displacement_N = offset_scales.x * normal * SHADOW_OFFSET_NORMAL;
+            let displacement_L = offset_scales.y * light_direction * SHADOW_OFFSET_LIGHT;
+            shadow_world_position = input.world_position + float4(displacement_N + displacement_L, 0.0);
+        }
+
+        let shadow_position = mul(directional_light_partitions[partition_index].view_projection, shadow_world_position);
         var shadow_coords = shadow_position.xyz / shadow_position.w;
+        let depth_bias = (global_uniforms.shadow_quality == 6) ? 0.0 : CONSTANT_DEPTH_BIAS;
         shadow_coords = float3(
             coordinate_space::clip_to_screen_space(shadow_coords.xy),
-            max(shadow_coords.z, 0.0) + CONSTANT_DEPTH_BIAS
+            max(shadow_coords.z, 0.0) + depth_bias
         );
 
         var visibility: float = 0.0;
@@ -165,6 +172,15 @@ func fragment(input: ModelVertexOutput) -> float4 {
                 shadow_maps.GetDimensions(width, height, depth);
                 let shadow_map_dimensions = uint2(width, height);
                 visibility = get_pcf_shadow(partition_index, shadow_coords, shadow_map_dimensions, shadow_maps, shadow_map_sampler);
+                break;
+            }
+            case 6: {
+                visibility = get_evsm_shadow(
+                    partition_index,
+                    shadow_coords,
+                    evsm_moments,
+                    linear_sampler
+                );
                 break;
             }
             default: {

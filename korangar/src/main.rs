@@ -2584,7 +2584,7 @@ impl Client {
 
             let (directional_light_direction, directional_light_color) = map.directional_light();
 
-            match self.player_camera.is_rotating_or_zooming_fast() {
+            match self.player_camera.is_rotating_or_zooming_fast() || shadow_quality == ShadowQuality::SoftEVSM {
                 true => {
                     self.directional_shadow_camera.update_camera_pssm(
                         directional_light_direction,

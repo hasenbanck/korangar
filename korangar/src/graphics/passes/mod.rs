@@ -1,4 +1,6 @@
 mod directional_shadow;
+mod directional_shadow_evsm;
+mod evsm_blur;
 mod forward;
 mod interface;
 mod light_culling;
@@ -13,6 +15,8 @@ use std::marker::ConstParamTy;
 
 use bytemuck::{Pod, Zeroable};
 pub(crate) use directional_shadow::*;
+pub(crate) use directional_shadow_evsm::*;
+pub(crate) use evsm_blur::*;
 pub(crate) use forward::*;
 pub(crate) use interface::*;
 pub(crate) use light_culling::*;

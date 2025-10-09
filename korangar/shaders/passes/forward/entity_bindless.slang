@@ -32,6 +32,7 @@ struct ForwardEntityBindlessVertexOutput {
 [[vk::binding(5, 1)]] var point_shadow_maps: DepthTextureCubeArray;
 [[vk::binding(6, 1)]] var directional_light_partitions: StructuredBuffer<DirectionalLightPartition>;
 [[vk::binding(7, 1)]] var kernel_uniforms: ConstantBuffer<KernelUniforms>;
+[[vk::binding(8, 1)]] var evsm_moments: Texture2DArray;
 [[vk::binding(0, 2)]] var instance_data: StructuredBuffer<ForwardEntityInstanceData>;
 [[vk::binding(1, 2)]] var textures: Texture2D[];
 
@@ -173,7 +174,9 @@ func fragment(input: ForwardEntityBindlessVertexOutput) -> ForwardEntityFragment
 
         let shadow_position = mul(directional_light_partitions[partition_index].view_projection, adjusted_world_position);
         var shadow_coords = shadow_position.xyz / shadow_position.w;
-        let bias = 0.011;
+
+        // For EVSM, skip displacement and bias.
+        let bias = (global_uniforms.shadow_quality == 6) ? 0.0 : 0.011;
         shadow_coords = float3(
             coordinate_space::clip_to_screen_space(shadow_coords.xy),
             // If the far plane of the shadow is in front of the drawn object, then it's value would be below 0.0.
@@ -198,6 +201,15 @@ func fragment(input: ForwardEntityBindlessVertexOutput) -> ForwardEntityFragment
                 shadow_maps.GetDimensions(shadow_width, shadow_height, shadow_depth);
                 let shadow_map_dimensions = uint2(shadow_width, shadow_height);
                 visibility = get_pcf_shadow(partition_index, shadow_coords, shadow_map_dimensions, shadow_maps, shadow_map_sampler);
+                break;
+            }
+            case 6: {
+                visibility = get_evsm_shadow(
+                    partition_index,
+                    shadow_coords,
+                    evsm_moments,
+                    linear_sampler
+                );
                 break;
             }
             default: {

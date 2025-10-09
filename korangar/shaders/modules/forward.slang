@@ -3,6 +3,7 @@
 module forward;
 
 import depth_texture;
+import evsm;
 import globals;
 import matrix;
 import sdsm;
@@ -385,4 +386,15 @@ public func sample_bandlimited_pixel_bindless(textures: Texture2D[], texture_ind
     }
 
     return color;
+}
+
+[ForceInline]
+public func get_evsm_shadow(
+    partition_index: uint,
+    shadow_coords: float3,
+    evsm_moments: Texture2DArray<float4>,
+    linear_sampler: SamplerState
+) -> float {
+    let moments = evsm_moments.Sample(linear_sampler, float3(shadow_coords.xy, partition_index));
+    return sample_evsm_shadow(shadow_coords.z, moments);
 }

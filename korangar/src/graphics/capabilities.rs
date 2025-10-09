@@ -54,7 +54,7 @@ impl Capabilities {
             texture_compression: false,
             #[cfg(feature = "debug")]
             polygon_mode_line: false,
-            required_features: Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
+            required_features: Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES | Features::FLOAT32_FILTERABLE,
             required_limits,
         };
 
@@ -71,6 +71,7 @@ impl Capabilities {
             );
             Self::check_feature(adapter_features, Features::ADDRESS_MODE_CLAMP_TO_BORDER);
             Self::check_feature(adapter_features, Features::ADDRESS_MODE_CLAMP_TO_ZERO);
+            Self::check_feature(adapter_features, Features::FLOAT32_FILTERABLE);
             Self::check_feature(adapter_features, Features::INDIRECT_FIRST_INSTANCE);
             Self::check_feature(adapter_features, Features::PARTIALLY_BOUND_BINDING_ARRAY);
             Self::check_feature(
