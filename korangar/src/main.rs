@@ -1205,10 +1205,25 @@ impl Client {
 
                         let entities = self.client_state.follow_mut(client_state().entities());
 
+                        // Check if this entity was fading out and capture its current alpha value
+                        // so we can smoothly transition to fading in from the same alpha.
+                        let old_entity_alpha = entities
+                            .iter()
+                            .find(|entity| entity.get_entity_id() == entity_id)
+                            .and_then(|entity| match entity.get_fade_state() {
+                                FadeState::FadingOut { .. } => Some(entity.get_fade_state().calculate_alpha(client_tick)),
+                                _ => None,
+                            });
+
                         // Sometimes (like after a job change) the server will tell the client
                         // that a new entity appeared, even though it was already on screen. So
                         // to prevent the entity existing twice, we remove the old one.
                         entities.retain(|entity| entity.get_entity_id() != entity_id);
+
+                        // If the entity was fading out, start fading in from its current alpha value.
+                        if let Some(alpha) = old_entity_alpha {
+                            npc.set_fade_state(FadeState::from_alpha(alpha, FadeDirection::In, client_tick));
+                        }
 
                         if let Some(animation_data) =
                             self.async_loader
@@ -1224,7 +1239,7 @@ impl Client {
                     }
                 }
                 NetworkEvent::RemoveEntity { entity_id, reason } => {
-                    //If the motive is dead, you need to set the player to dead
+                    // If the motive is dead, you need to set the player to dead.
                     if reason == DisappearanceReason::Died {
                         if let Some(entity) = self
                             .client_state
@@ -1256,10 +1271,17 @@ impl Client {
                             }
                         }
                     } else {
-                        // TODO: Fade entity out.
-                        self.client_state
+                        // For non-death disappearances, start fading out the entity.
+                        if let Some(entity) = self
+                            .client_state
                             .follow_mut(client_state().entities())
-                            .retain(|entity| entity.get_entity_id() != entity_id);
+                            .iter_mut()
+                            .find(|entity| entity.get_entity_id() == entity_id)
+                        {
+                            // Preserve alpha when transitioning from any state to fading out.
+                            let current_alpha = entity.get_fade_state().calculate_alpha(client_tick);
+                            entity.set_fade_state(FadeState::from_alpha(current_alpha, FadeDirection::Out, client_tick));
+                        }
                     }
 
                     // If the entity that was removed had an attack buffered we remove the entity
@@ -2524,6 +2546,11 @@ impl Client {
                     .iter_mut()
                     .for_each(|entity| entity.update(&self.audio_engine, self.map.as_ref().unwrap(), current_camera, client_tick));
 
+                // Remove entities that have finished fading out.
+                self.client_state
+                    .follow_mut(client_state().entities())
+                    .retain(|entity| !entity.is_fading_out_complete(client_tick));
+
                 // Buffered attack (the player tried attacking while out of range).
                 let auto_attack = *self.client_state.follow(client_state().game_settings().auto_attack());
                 if self
@@ -2758,6 +2785,7 @@ impl Client {
                         entity_instructions,
                         self.client_state.follow(client_state().entities()),
                         &partition_camera,
+                        client_tick,
                     );
 
                     #[cfg_attr(feature = "debug", korangar_debug::debug_condition(render_options.show_entities))]
@@ -2765,6 +2793,7 @@ impl Client {
                         entity_instructions,
                         self.client_state.follow(client_state().dead_entities()),
                         &partition_camera,
+                        client_tick,
                     );
                 }
             }
@@ -2838,6 +2867,7 @@ impl Client {
                     &mut self.entity_instructions,
                     self.client_state.follow(client_state().entities()),
                     entity_camera,
+                    client_tick,
                 );
 
                 #[cfg_attr(feature = "debug", korangar_debug::debug_condition(render_options.show_entities))]
@@ -2845,6 +2875,7 @@ impl Client {
                     &mut self.entity_instructions,
                     self.client_state.follow(client_state().dead_entities()),
                     entity_camera,
+                    client_tick,
                 );
 
                 #[cfg(feature = "debug")]
@@ -3186,7 +3217,7 @@ impl Client {
                 entities: &mut self.entity_instructions,
                 directional_shadow_model_batches: &self.directional_shadow_model_batches,
                 directional_shadow_models: &self.directional_shadow_model_instructions,
-                directional_shadow_entities: &self.directional_shadow_entity_instructions,
+                directional_shadow_entities: &mut self.directional_shadow_entity_instructions,
                 point_shadow_models: &self.point_shadow_model_instructions,
                 point_shadow_entities: &self.point_shadow_entity_instructions,
                 effects: self.effect_renderer.get_instructions(),
