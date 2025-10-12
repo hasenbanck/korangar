@@ -2,10 +2,10 @@
 use cgmath::Vector2;
 #[cfg(feature = "debug")]
 use korangar_debug::profiling::FrameMeasurement;
+use korangar_gameplay::{InventoryItem, ShopItem};
 #[cfg(feature = "debug")]
 use korangar_graphics::MarkerIdentifier;
 use korangar_interface::event::{ClickHandler, Event, EventQueue};
-use korangar_networking::{InventoryItem, ShopItem};
 use ragnarok_packets::{
     AccountId, BuyOrSellOption, CharacterId, CharacterServerInformation, EntityId, HotbarSlot, ShopId, SoldItemInformation, StatUpType,
     TilePosition,

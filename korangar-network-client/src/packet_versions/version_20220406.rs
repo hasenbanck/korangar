@@ -3,15 +3,14 @@ use std::net::IpAddr;
 use std::rc::Rc;
 use std::time::Instant;
 
+use korangar_gameplay::{
+    CharacterServerLoginData, GameplayEvent, HotkeyState, InventoryItem, InventoryItemDetails, ItemQuantity, LoginServerLoginData,
+    MessageColor, NoMetadata, ShopItem, UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason,
+};
 use ragnarok_packets::handler::{DuplicateHandlerError, PacketCallback, PacketHandler};
 use ragnarok_packets::*;
 
-use crate::event::{NetworkEventList, NoNetworkEvents};
-use crate::items::ItemQuantity;
-use crate::{
-    CharacterServerLoginData, HotkeyState, InventoryItem, InventoryItemDetails, LoginServerLoginData, MessageColor, NetworkEvent,
-    NoMetadata, ShopItem, UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason,
-};
+use crate::{NetworkEventList, NoNetworkEvents};
 
 pub fn register_login_server_packets<Callback>(
     packet_handler: &mut PacketHandler<NetworkEventList, (), Callback>,
@@ -19,7 +18,7 @@ pub fn register_login_server_packets<Callback>(
 where
     Callback: PacketCallback,
 {
-    packet_handler.register(|packet: LoginServerLoginSuccessPacket| NetworkEvent::LoginServerConnected {
+    packet_handler.register(|packet: LoginServerLoginSuccessPacket| GameplayEvent::LoginServerConnected {
         character_servers: packet.character_server_information,
         login_data: LoginServerLoginData {
             account_id: packet.account_id,
@@ -38,7 +37,7 @@ where
             LoginFailedReason::AlreadyOnline => (UnifiedLoginFailedReason::AlreadyOnline, "Already online"),
         };
 
-        NetworkEvent::LoginServerConnectionFailed { reason, message }
+        GameplayEvent::LoginServerConnectionFailed { reason, message }
     })?;
     packet_handler.register(|packet: LoginFailedPacket2| {
         let (reason, message) = match packet.reason {
@@ -56,7 +55,7 @@ where
             ),
         };
 
-        NetworkEvent::LoginServerConnectionFailed { reason, message }
+        GameplayEvent::LoginServerConnectionFailed { reason, message }
     })?;
 
     Ok(())
@@ -76,14 +75,14 @@ where
             LoginFailedReason::AlreadyOnline => "Already online",
         };
 
-        NetworkEvent::CharacterServerConnectionFailed { reason, message }
+        GameplayEvent::CharacterServerConnectionFailed { reason, message }
     })?;
     packet_handler.register(
-        |packet: CharacterServerLoginSuccessPacket| NetworkEvent::CharacterServerConnected {
+        |packet: CharacterServerLoginSuccessPacket| GameplayEvent::CharacterServerConnected {
             normal_slot_count: packet.normal_slot_count as usize,
         },
     )?;
-    packet_handler.register(|packet: RequestCharacterListSuccessPacket| NetworkEvent::CharacterList {
+    packet_handler.register(|packet: RequestCharacterListSuccessPacket| GameplayEvent::CharacterList {
         characters: packet.character_information,
     })?;
     packet_handler.register_noop::<CharacterListPacket>()?;
@@ -98,7 +97,7 @@ where
             character_id: packet.character_id,
         };
 
-        NetworkEvent::CharacterSelected { login_data }
+        GameplayEvent::CharacterSelected { login_data }
     })?;
     packet_handler.register(|packet: CharacterSelectionFailedPacket| {
         let (reason, message) = match packet.reason {
@@ -108,15 +107,15 @@ where
             ),
         };
 
-        NetworkEvent::CharacterSelectionFailed { reason, message }
+        GameplayEvent::CharacterSelectionFailed { reason, message }
     })?;
     packet_handler.register(|_: MapServerUnavailablePacket| {
         let reason = UnifiedCharacterSelectionFailedReason::MapServerUnavailable;
         let message = "Map server currently unavailable";
 
-        NetworkEvent::CharacterSelectionFailed { reason, message }
+        GameplayEvent::CharacterSelectionFailed { reason, message }
     })?;
-    packet_handler.register(|packet: CreateCharacterSuccessPacket| NetworkEvent::CharacterCreated {
+    packet_handler.register(|packet: CreateCharacterSuccessPacket| GameplayEvent::CharacterCreated {
         character_information: packet.character_information,
     })?;
     packet_handler.register(|packet: CharacterCreationFailedPacket| {
@@ -128,9 +127,9 @@ where
             CharacterCreationFailedReason::CharacterCerationFailed => "Character creation failed",
         };
 
-        NetworkEvent::CharacterCreationFailed { reason, message }
+        GameplayEvent::CharacterCreationFailed { reason, message }
     })?;
-    packet_handler.register(|_: CharacterDeletionSuccessPacket| NetworkEvent::CharacterDeleted)?;
+    packet_handler.register(|_: CharacterDeletionSuccessPacket| GameplayEvent::CharacterDeleted)?;
     packet_handler.register(|packet: CharacterDeletionFailedPacket| {
         let reason = packet.reason;
         let message = match reason {
@@ -138,11 +137,11 @@ where
             CharacterDeletionFailedReason::CharacterNotFound => "Character was not found",
             CharacterDeletionFailedReason::NotEligible => "Character is not eligible for deletion",
         };
-        NetworkEvent::CharacterDeletionFailed { reason, message }
+        GameplayEvent::CharacterDeletionFailed { reason, message }
     })?;
     packet_handler.register(|packet: SwitchCharacterSlotResponsePacket| match packet.status {
-        SwitchCharacterSlotResponseStatus::Success => NetworkEvent::CharacterSlotSwitched,
-        SwitchCharacterSlotResponseStatus::Error => NetworkEvent::CharacterSlotSwitchFailed,
+        SwitchCharacterSlotResponseStatus::Success => GameplayEvent::CharacterSlotSwitched,
+        SwitchCharacterSlotResponseStatus::Error => GameplayEvent::CharacterSlotSwitchFailed,
     })?;
 
     Ok(())
@@ -164,7 +163,7 @@ where
     let inventory_items: Rc<RefCell<Option<Vec<InventoryItem<NoMetadata>>>>> = Rc::new(RefCell::new(None));
 
     packet_handler.register(|_: MapServerPingPacket| NoNetworkEvents)?;
-    packet_handler.register(|packet: BroadcastMessagePacket| NetworkEvent::ChatMessage {
+    packet_handler.register(|packet: BroadcastMessagePacket| GameplayEvent::ChatMessage {
         text: packet.message,
         color: MessageColor::Broadcast,
     })?;
@@ -175,19 +174,19 @@ where
             green: packet.font_color.green,
             blue: packet.font_color.blue,
         };
-        NetworkEvent::ChatMessage {
+        GameplayEvent::ChatMessage {
             text: packet.message,
             color,
         }
     })?;
     packet_handler.register(|packet: OverheadMessagePacket| {
         // FIX: This should be a different event.
-        NetworkEvent::ChatMessage {
+        GameplayEvent::ChatMessage {
             text: packet.message,
             color: MessageColor::Broadcast,
         }
     })?;
-    packet_handler.register(|packet: ServerMessagePacket| NetworkEvent::ChatMessage {
+    packet_handler.register(|packet: ServerMessagePacket| GameplayEvent::ChatMessage {
         text: packet.message,
         color: MessageColor::Server,
     })?;
@@ -199,7 +198,7 @@ where
             green: packet.color.green,
             blue: packet.color.blue,
         };
-        NetworkEvent::ChatMessage {
+        GameplayEvent::ChatMessage {
             text: packet.message,
             color,
         }
@@ -214,7 +213,7 @@ where
 
         let (origin, destination) = from_to.to_origin_destination();
 
-        NetworkEvent::EntityMove {
+        GameplayEvent::EntityMove {
             entity_id,
             origin,
             destination,
@@ -230,7 +229,7 @@ where
 
         let (origin, destination) = from_to.to_origin_destination();
 
-        NetworkEvent::PlayerMove {
+        GameplayEvent::PlayerMove {
             origin,
             destination,
             starting_timestamp,
@@ -241,39 +240,39 @@ where
 
         let map_name = map_name.replace(".gat", "");
 
-        NetworkEvent::ChangeMap { map_name, position }
+        GameplayEvent::ChangeMap { map_name, position }
     })?;
-    packet_handler.register(|packet: ResurrectionPacket| NetworkEvent::ResurrectPlayer {
+    packet_handler.register(|packet: ResurrectionPacket| GameplayEvent::ResurrectPlayer {
         entity_id: packet.entity_id,
     })?;
-    packet_handler.register(|packet: EntityAppearedPacket| NetworkEvent::AddEntity {
+    packet_handler.register(|packet: EntityAppearedPacket| GameplayEvent::AddEntity {
         entity_data: packet.into(),
     })?;
-    packet_handler.register(|packet: EntityAppeared2Packet| NetworkEvent::AddEntity {
+    packet_handler.register(|packet: EntityAppeared2Packet| GameplayEvent::AddEntity {
         entity_data: packet.into(),
     })?;
-    packet_handler.register(|packet: MovingEntityAppearedPacket| NetworkEvent::AddEntity {
+    packet_handler.register(|packet: MovingEntityAppearedPacket| GameplayEvent::AddEntity {
         entity_data: packet.into(),
     })?;
-    packet_handler.register(|packet: EntityDisappearedPacket| NetworkEvent::RemoveEntity {
+    packet_handler.register(|packet: EntityDisappearedPacket| GameplayEvent::RemoveEntity {
         entity_id: packet.entity_id,
         reason: packet.reason,
     })?;
     packet_handler.register(|packet: UpdateStatPacket| {
         let UpdateStatPacket { stat_type } = packet;
-        NetworkEvent::UpdateStat { stat_type }
+        GameplayEvent::UpdateStat { stat_type }
     })?;
     packet_handler.register(|packet: UpdateStatPacket1| {
         let UpdateStatPacket1 { stat_type } = packet;
-        NetworkEvent::UpdateStat { stat_type }
+        GameplayEvent::UpdateStat { stat_type }
     })?;
     packet_handler.register(|packet: UpdateStatPacket2| {
         let UpdateStatPacket2 { stat_type } = packet;
-        NetworkEvent::UpdateStat { stat_type }
+        GameplayEvent::UpdateStat { stat_type }
     })?;
     packet_handler.register(|packet: UpdateStatPacket3| {
         let UpdateStatPacket3 { stat_type } = packet;
-        NetworkEvent::UpdateStat { stat_type }
+        GameplayEvent::UpdateStat { stat_type }
     })?;
     packet_handler.register_noop::<UpdateAttackRangePacket>()?;
     packet_handler.register_noop::<NewMailStatusPacket>()?;
@@ -281,11 +280,11 @@ where
     packet_handler.register_noop::<AchievementListPacket>()?;
     packet_handler.register_noop::<CriticalWeightUpdatePacket>()?;
     packet_handler.register(|packet: SpriteChangePacket| match packet.sprite_type {
-        SpriteChangeType::Base => Some(NetworkEvent::ChangeJob {
+        SpriteChangeType::Base => Some(GameplayEvent::ChangeJob {
             account_id: packet.account_id,
             job_id: packet.value,
         }),
-        SpriteChangeType::Hair => Some(NetworkEvent::ChangeHair {
+        SpriteChangeType::Hair => Some(GameplayEvent::ChangeHair {
             account_id: packet.account_id,
             hair_id: packet.value,
         }),
@@ -390,16 +389,16 @@ where
 
         move |_: InventoyEndPacket| {
             let items = inventory_items.borrow_mut().take().expect("Unexpected inventory end packet");
-            NetworkEvent::SetInventory { items }
+            GameplayEvent::SetInventory { items }
         }
     })?;
     packet_handler.register_noop::<EquippableSwitchItemListPacket>()?;
     packet_handler.register_noop::<MapTypePacket>()?;
     packet_handler.register(|packet: UpdateSkillTreePacket| {
         let UpdateSkillTreePacket { skill_information } = packet;
-        NetworkEvent::SkillTree { skill_information }
+        GameplayEvent::SkillTree { skill_information }
     })?;
-    packet_handler.register(|packet: UpdateHotkeysPacket| NetworkEvent::SetHotkeyData {
+    packet_handler.register(|packet: UpdateHotkeysPacket| GameplayEvent::SetHotkeyData {
         tab: packet.tab,
         hotkeys: packet
             .hotkeys
@@ -421,7 +420,7 @@ where
             ..
         } = packet;
 
-        NetworkEvent::InitialStats {
+        GameplayEvent::InitialStats {
             strength_stat_points_cost,
             agility_stat_points_cost,
             vitality_stat_points_cost,
@@ -438,24 +437,24 @@ where
     packet_handler.register(|packet: NextButtonPacket| {
         let NextButtonPacket { npc_id } = packet;
 
-        NetworkEvent::AddNextButton { npc_id }
+        GameplayEvent::AddNextButton { npc_id }
     })?;
     packet_handler.register(|packet: CloseButtonPacket| {
         let CloseButtonPacket { npc_id } = packet;
 
-        NetworkEvent::AddCloseButton { npc_id }
+        GameplayEvent::AddCloseButton { npc_id }
     })?;
     packet_handler.register(|packet: DialogMenuPacket| {
         let DialogMenuPacket { npc_id, message } = packet;
 
         let choices = message.split(':').map(String::from).filter(|text| !text.is_empty()).collect();
 
-        NetworkEvent::AddChoiceButtons { choices, npc_id }
+        GameplayEvent::AddChoiceButtons { choices, npc_id }
     })?;
     packet_handler.register_noop::<DisplaySpecialEffectPacket>()?;
     packet_handler.register_noop::<DisplaySkillCooldownPacket>()?;
     packet_handler.register_noop::<DisplaySkillEffectAndDamagePacket>()?;
-    packet_handler.register(|packet: DisplaySkillEffectNoDamagePacket| NetworkEvent::HealEffect {
+    packet_handler.register(|packet: DisplaySkillEffectNoDamagePacket| GameplayEvent::HealEffect {
         entity_id: packet.destination_entity_id,
         heal_amount: packet.heal_amount as usize,
     })?;
@@ -482,17 +481,17 @@ where
             VisualEffect::BaseLevelUpTaekwon => "help_angel\\help_angel\\help_angel.str",
         };
 
-        NetworkEvent::VisualEffect { effect_path, entity_id }
+        GameplayEvent::VisualEffect { effect_path, entity_id }
     })?;
     packet_handler.register_noop::<DisplayGainedExperiencePacket>()?;
     packet_handler.register_noop::<DisplayImagePacket>()?;
     packet_handler.register_noop::<StateChangePacket>()?;
 
     packet_handler.register(|packet: QuestEffectPacket| match packet.effect {
-        QuestEffect::None => NetworkEvent::RemoveQuestEffect {
+        QuestEffect::None => GameplayEvent::RemoveQuestEffect {
             entity_id: packet.entity_id,
         },
-        _ => NetworkEvent::AddQuestEffect { quest_effect: packet },
+        _ => GameplayEvent::AddQuestEffect { quest_effect: packet },
     })?;
     packet_handler.register(|packet: ItemPickupPacket| {
         let ItemPickupPacket {
@@ -560,22 +559,22 @@ where
             details,
         };
 
-        NetworkEvent::IventoryItemAdded { item }
+        GameplayEvent::IventoryItemAdded { item }
     })?;
-    packet_handler.register(|packet: RemoveItemFromInventoryPacket| NetworkEvent::InventoryItemRemoved {
+    packet_handler.register(|packet: RemoveItemFromInventoryPacket| GameplayEvent::InventoryItemRemoved {
         reason: packet.remove_reason,
         index: packet.index,
         amount: packet.amount,
     })?;
-    packet_handler.register(|packet: ServerTickPacket| NetworkEvent::UpdateClientTick {
+    packet_handler.register(|packet: ServerTickPacket| GameplayEvent::UpdateClientTick {
         client_tick: packet.client_tick,
         received_at: Instant::now(),
     })?;
-    packet_handler.register(|packet: RequestPlayerDetailsSuccessPacket| NetworkEvent::UpdateEntityDetails {
+    packet_handler.register(|packet: RequestPlayerDetailsSuccessPacket| GameplayEvent::UpdateEntityDetails {
         entity_id: EntityId(packet.character_id.0),
         name: packet.name,
     })?;
-    packet_handler.register(|packet: RequestEntityDetailsSuccessPacket| NetworkEvent::UpdateEntityDetails {
+    packet_handler.register(|packet: RequestEntityDetailsSuccessPacket| GameplayEvent::UpdateEntityDetails {
         entity_id: packet.entity_id,
         name: packet.name,
     })?;
@@ -586,7 +585,7 @@ where
             maximum_health_points,
         } = packet;
 
-        NetworkEvent::UpdateEntityHealth {
+        GameplayEvent::UpdateEntityHealth {
             entity_id,
             health_points: health_points as usize,
             maximum_health_points: maximum_health_points as usize,
@@ -600,7 +599,7 @@ where
             attack_range,
         } = packet;
 
-        NetworkEvent::AttackFailed {
+        GameplayEvent::AttackFailed {
             target_entity_id,
             target_position,
             player_position,
@@ -608,41 +607,41 @@ where
         }
     })?;
     packet_handler.register(|packet: DamagePacket1| match packet.damage_type {
-        DamageType::Damage => Some(NetworkEvent::DamageEffect {
+        DamageType::Damage => Some(GameplayEvent::DamageEffect {
             source_entity_id: packet.source_entity_id,
             destination_entity_id: packet.destination_entity_id,
             damage_amount: (packet.damage_amount > 0).then_some(packet.damage_amount as usize),
             attack_duration: packet.attack_duration,
             is_critical: false,
         }),
-        DamageType::CriticalHit => Some(NetworkEvent::DamageEffect {
+        DamageType::CriticalHit => Some(GameplayEvent::DamageEffect {
             source_entity_id: packet.source_entity_id,
             destination_entity_id: packet.destination_entity_id,
             damage_amount: (packet.damage_amount > 0).then_some(packet.damage_amount as usize),
             attack_duration: packet.attack_duration,
             is_critical: true,
         }),
-        DamageType::StandUp => Some(NetworkEvent::PlayerStandUp {
+        DamageType::StandUp => Some(GameplayEvent::PlayerStandUp {
             entity_id: packet.destination_entity_id,
         }),
         _ => None,
     })?;
     packet_handler.register(|packet: DamagePacket3| match packet.damage_type {
-        DamageType::Damage => Some(NetworkEvent::DamageEffect {
+        DamageType::Damage => Some(GameplayEvent::DamageEffect {
             source_entity_id: packet.source_entity_id,
             destination_entity_id: packet.destination_entity_id,
             damage_amount: (packet.damage_amount > 0).then_some(packet.damage_amount as usize),
             attack_duration: packet.attack_duration,
             is_critical: false,
         }),
-        DamageType::CriticalHit => Some(NetworkEvent::DamageEffect {
+        DamageType::CriticalHit => Some(GameplayEvent::DamageEffect {
             source_entity_id: packet.source_entity_id,
             destination_entity_id: packet.destination_entity_id,
             damage_amount: (packet.damage_amount > 0).then_some(packet.damage_amount as usize),
             attack_duration: packet.attack_duration,
             is_critical: true,
         }),
-        DamageType::StandUp => Some(NetworkEvent::PlayerStandUp {
+        DamageType::StandUp => Some(GameplayEvent::PlayerStandUp {
             entity_id: packet.destination_entity_id,
         }),
         _ => None,
@@ -650,17 +649,17 @@ where
     packet_handler.register(|packet: NpcDialogPacket| {
         let NpcDialogPacket { npc_id, text } = packet;
 
-        NetworkEvent::OpenDialog { text, npc_id }
+        GameplayEvent::OpenDialog { text, npc_id }
     })?;
     packet_handler.register(|packet: RequestEquipItemStatusPacket| match packet.result {
-        RequestEquipItemStatus::Success => Some(NetworkEvent::UpdateEquippedPosition {
+        RequestEquipItemStatus::Success => Some(GameplayEvent::UpdateEquippedPosition {
             index: packet.inventory_index,
             equipped_position: packet.equipped_position,
         }),
         _ => None,
     })?;
     packet_handler.register(|packet: RequestUnequipItemStatusPacket| match packet.result {
-        RequestUnequipItemStatus::Success => Some(NetworkEvent::UpdateEquippedPosition {
+        RequestUnequipItemStatus::Success => Some(GameplayEvent::UpdateEquippedPosition {
             index: packet.inventory_index,
             equipped_position: EquipPosition::NONE,
         }),
@@ -668,20 +667,20 @@ where
     })?;
     packet_handler.register_noop::<Packet8302>()?;
     packet_handler.register_noop::<Packet0b18>()?;
-    packet_handler.register(|packet: MapServerLoginSuccessPacket| NetworkEvent::UpdateClientTick {
+    packet_handler.register(|packet: MapServerLoginSuccessPacket| GameplayEvent::UpdateClientTick {
         client_tick: packet.client_tick,
         received_at: Instant::now(),
     })?;
     packet_handler.register(|packet: RestartResponsePacket| match packet.result {
-        RestartResponseStatus::Ok => NetworkEvent::LoggedOut,
-        RestartResponseStatus::Nothing => NetworkEvent::ChatMessage {
+        RestartResponseStatus::Ok => GameplayEvent::LoggedOut,
+        RestartResponseStatus::Nothing => GameplayEvent::ChatMessage {
             text: "Failed to log out.".to_string(),
             color: MessageColor::Error,
         },
     })?;
     packet_handler.register(|packet: DisconnectResponsePacket| match packet.result {
-        DisconnectResponseStatus::Ok => NetworkEvent::LoggedOut,
-        DisconnectResponseStatus::Wait10Seconds => NetworkEvent::ChatMessage {
+        DisconnectResponseStatus::Ok => GameplayEvent::LoggedOut,
+        DisconnectResponseStatus::Wait10Seconds => GameplayEvent::ChatMessage {
             text: "Please wait 10 seconds before trying to log out.".to_string(),
             color: MessageColor::Error,
         },
@@ -696,7 +695,7 @@ where
             ..
         } = packet;
 
-        NetworkEvent::AddSkillUnit {
+        GameplayEvent::AddSkillUnit {
             entity_id,
             unit_id,
             position,
@@ -704,14 +703,14 @@ where
     })?;
     packet_handler.register(|packet: SkillUnitDisappearPacket| {
         let SkillUnitDisappearPacket { entity_id } = packet;
-        NetworkEvent::RemoveSkillUnit { entity_id }
+        GameplayEvent::RemoveSkillUnit { entity_id }
     })?;
     packet_handler.register_noop::<NotifyGroundSkillPacket>()?;
-    packet_handler.register(|packet: FriendListPacket| NetworkEvent::SetFriendList {
+    packet_handler.register(|packet: FriendListPacket| GameplayEvent::SetFriendList {
         friend_list: packet.friend_list,
     })?;
     packet_handler.register_noop::<FriendOnlineStatusPacket>()?;
-    packet_handler.register(|packet: FriendRequestPacket| NetworkEvent::FriendRequest {
+    packet_handler.register(|packet: FriendRequestPacket| GameplayEvent::FriendRequest {
         requestee: packet.requestee,
     })?;
     packet_handler.register(|packet: FriendRequestResultPacket| {
@@ -722,18 +721,18 @@ where
             FriendRequestResult::OtherFriendListFull => format!("{}'s Friend List is full.", packet.friend.name),
         };
 
-        let mut events = vec![NetworkEvent::ChatMessage {
+        let mut events = vec![GameplayEvent::ChatMessage {
             text,
             color: MessageColor::Information,
         }];
 
         if matches!(packet.result, FriendRequestResult::Accepted) {
-            events.push(NetworkEvent::FriendAdded { friend: packet.friend });
+            events.push(GameplayEvent::FriendAdded { friend: packet.friend });
         }
 
         events
     })?;
-    packet_handler.register(|packet: NotifyFriendRemovedPacket| NetworkEvent::FriendRemoved {
+    packet_handler.register(|packet: NotifyFriendRemovedPacket| GameplayEvent::FriendRemoved {
         account_id: packet.account_id,
         character_id: packet.character_id,
     })?;
@@ -744,7 +743,7 @@ where
     packet_handler.register_noop::<ClanOnlineCountPacket>()?;
     packet_handler.register_noop::<ChangeMapCellPacket>()?;
     packet_handler.register_noop::<OpenMarketPacket>()?;
-    packet_handler.register(|packet: BuyOrSellPacket| NetworkEvent::AskBuyOrSell { shop_id: packet.shop_id })?;
+    packet_handler.register(|packet: BuyOrSellPacket| GameplayEvent::AskBuyOrSell { shop_id: packet.shop_id })?;
     packet_handler.register(|packet: ShopItemListPacket| {
         let items = packet
             .items
@@ -760,12 +759,12 @@ where
             })
             .collect();
 
-        NetworkEvent::OpenShop { items }
+        GameplayEvent::OpenShop { items }
     })?;
-    packet_handler.register(|packet: BuyShopItemsResultPacket| NetworkEvent::BuyingCompleted { result: packet.result })?;
+    packet_handler.register(|packet: BuyShopItemsResultPacket| GameplayEvent::BuyingCompleted { result: packet.result })?;
     packet_handler.register_noop::<ParameterChangePacket>()?;
-    packet_handler.register(|packet: SellListPacket| NetworkEvent::SellItemList { items: packet.items })?;
-    packet_handler.register(|packet: SellItemsResultPacket| NetworkEvent::SellingCompleted { result: packet.result })?;
+    packet_handler.register(|packet: SellListPacket| GameplayEvent::SellItemList { items: packet.items })?;
+    packet_handler.register(|packet: SellItemsResultPacket| GameplayEvent::SellingCompleted { result: packet.result })?;
     packet_handler.register_noop::<RequestStatUpResponsePacket>()?;
     packet_handler.register_noop::<EquipAmmunitionPacket>()?;
     packet_handler.register_noop::<AmmunitionActionPacket>()?;

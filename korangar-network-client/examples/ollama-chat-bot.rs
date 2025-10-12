@@ -4,7 +4,8 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use korangar_debug::logging::Colorize;
-use korangar_networking::{DisconnectReason, NetworkEvent, NetworkingSystem, SupportedPacketVersion};
+use korangar_gameplay::{DisconnectReason, GameplayEvent, GameplayProvider, SupportedPacketVersion};
+use korangar_network_client::NetworkGameplayProvider;
 use reqwest::StatusCode;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -71,7 +72,7 @@ async fn main() {
     const CHARACTER_NAME: &str = "character name";
 
     // Create the networking system and HTTP client.
-    let (mut networking_system, mut network_event_buffer) = NetworkingSystem::spawn();
+    let (mut networking_system, mut network_event_buffer) = NetworkGameplayProvider::spawn();
     let client = reqwest::Client::new();
 
     // Persistent data.
@@ -79,14 +80,14 @@ async fn main() {
     let mut message_history = MessageHistory { hash_map: HashMap::new() };
 
     // Kick of the bot by connecting to the login server.
-    networking_system.connect_to_login_server(PACKET_VERSION, SOCKET_ADDR, USERNAME.to_owned(), PASSWORD.to_owned());
+    networking_system.connect_to_login_server(PACKET_VERSION, SOCKET_ADDR, USERNAME, PASSWORD);
 
     loop {
         networking_system.get_events(&mut network_event_buffer);
 
         for event in network_event_buffer.drain() {
             match event {
-                NetworkEvent::LoginServerConnected {
+                GameplayEvent::LoginServerConnected {
                     character_servers,
                     login_data,
                 } => {
@@ -97,36 +98,36 @@ async fn main() {
 
                     saved_login_data = Some(login_data);
                 }
-                NetworkEvent::LoginServerConnectionFailed { message, .. } => {
+                GameplayEvent::LoginServerConnectionFailed { message, .. } => {
                     panic!("Failed to connect to login server: {}", message);
                 }
-                NetworkEvent::LoginServerDisconnected {
+                GameplayEvent::LoginServerDisconnected {
                     reason: DisconnectReason::ConnectionError,
                 } => {
                     panic!("Login server connection error");
                 }
-                NetworkEvent::CharacterServerConnected { .. } => {
+                GameplayEvent::CharacterServerConnected { .. } => {
                     println!("[{}] Successfully connected to character server", "Setup".green());
 
                     networking_system.request_character_list().expect("Character server disconnected");
                 }
-                NetworkEvent::CharacterServerConnectionFailed { message, .. } => {
+                GameplayEvent::CharacterServerConnectionFailed { message, .. } => {
                     panic!("Failed to connect to character server: {}", message);
                 }
-                NetworkEvent::CharacterServerDisconnected {
+                GameplayEvent::CharacterServerDisconnected {
                     reason: DisconnectReason::ConnectionError,
                 } => {
                     panic!("Character server connection error");
                 }
-                NetworkEvent::CharacterSelectionFailed { message, .. } => {
+                GameplayEvent::CharacterSelectionFailed { message, .. } => {
                     panic!("Failed to select character: {}", message);
                 }
-                NetworkEvent::MapServerDisconnected {
+                GameplayEvent::MapServerDisconnected {
                     reason: DisconnectReason::ConnectionError,
                 } => {
                     panic!("Map server connection error");
                 }
-                NetworkEvent::CharacterList { characters } => {
+                GameplayEvent::CharacterList { characters } => {
                     let character_slot = characters
                         .iter()
                         .find(|character| character.name == CHARACTER_NAME)
@@ -139,7 +140,7 @@ async fn main() {
                         .select_character(character_slot)
                         .expect("Character server disconnected");
                 }
-                NetworkEvent::CharacterSelected { login_data, .. } => {
+                GameplayEvent::CharacterSelected { login_data, .. } => {
                     let login_login_data = saved_login_data.as_ref().unwrap();
 
                     networking_system.disconnect_from_character_server();
@@ -147,7 +148,7 @@ async fn main() {
 
                     networking_system.map_loaded().expect("Map server disconnected");
                 }
-                NetworkEvent::ChatMessage { text, .. } => {
+                GameplayEvent::ChatMessage { text, .. } => {
                     if text.starts_with(CHARACTER_NAME) {
                         continue;
                     }

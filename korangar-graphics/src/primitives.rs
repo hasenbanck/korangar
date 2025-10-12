@@ -263,7 +263,8 @@ impl std::ops::Sub<ScreenSize> for ScreenPosition {
     }
 }
 
-/// Defines a clipping rectangle for screen rendering with left, right, top, and bottom boundaries.
+/// Defines a clipping rectangle for screen rendering with left, right, top, and
+/// bottom boundaries.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct ScreenClip {
     /// Left boundary in pixels.
@@ -277,7 +278,8 @@ pub struct ScreenClip {
 }
 
 impl ScreenClip {
-    /// Combines this clip with another by taking the intersection of both clipping regions.
+    /// Combines this clip with another by taking the intersection of both
+    /// clipping regions.
     pub fn combine(&mut self, other: Self) {
         self.left = self.left.max(other.left);
         self.right = self.right.min(other.right);
@@ -355,7 +357,8 @@ impl ShadowPadding {
         }
     }
 
-    /// Creates shadow padding with one value for left and top, another for right and bottom.
+    /// Creates shadow padding with one value for left and top, another for
+    /// right and bottom.
     pub fn diagonal(left_and_top: f32, right_and_bottom: f32) -> Self {
         Self {
             left: left_and_top,
@@ -365,7 +368,8 @@ impl ShadowPadding {
         }
     }
 
-    /// Returns the padding values as an array in the order left, right, top, bottom.
+    /// Returns the padding values as an array in the order left, right, top,
+    /// bottom.
     pub fn components(&self) -> [f32; 4] {
         [self.left, self.right, self.top, self.bottom]
     }

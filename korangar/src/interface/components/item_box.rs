@@ -1,3 +1,4 @@
+use korangar_gameplay::{InventoryItem, InventoryItemDetails};
 use korangar_graphics::{CornerDiameter, ShadowPadding};
 use korangar_interface::MouseMode;
 use korangar_interface::element::store::{ElementStore, ElementStoreMut};
@@ -6,7 +7,6 @@ use korangar_interface::event::{ClickHandler, DropHandler, Event, EventQueue};
 use korangar_interface::layout::area::Area;
 use korangar_interface::layout::{MouseButton, Resolver, WindowLayout};
 use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};
-use korangar_networking::{InventoryItem, InventoryItemDetails};
 use rust_state::{Context, Path};
 
 use crate::Color;

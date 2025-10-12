@@ -1,11 +1,3 @@
-#![cfg_attr(feature = "interface", feature(impl_trait_in_assoc_type))]
-#![cfg_attr(feature = "interface", feature(negative_impls))]
-
-mod entity;
-mod event;
-mod hotkey;
-mod items;
-mod message;
 mod packet_versions;
 mod server;
 
@@ -13,8 +5,9 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use event::{
-    CharacterServerDisconnectedEvent, DisconnectedEvent, LoginServerDisconnectedEvent, MapServerDisconnectedEvent, NetworkEventList,
+use korangar_gameplay::{
+    CharacterServerLoginData, DisconnectReason, GameplayEvent, GameplayEventBuffer, GameplayEventBuffer as NetworkEventList,
+    GameplayProvider, LoginServerLoginData, NotConnectedError, ShopItem, SupportedPacketVersion,
 };
 use ragnarok_bytes::encoding::UTF_8;
 use ragnarok_bytes::{ByteReader, ByteWriter, FromBytes};
@@ -27,24 +20,39 @@ use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 
-pub use self::entity::EntityData;
-pub use self::event::{DisconnectReason, NetworkEvent};
-pub use self::hotkey::HotkeyState;
-pub use self::items::{InventoryItem, InventoryItemDetails, ItemQuantity, NoMetadata, SellItem, ShopItem};
-pub use self::message::MessageColor;
-pub use self::packet_versions::SupportedPacketVersion;
-pub use self::server::{
-    CharacterServerLoginData, LoginServerLoginData, NotConnectedError, UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason,
-};
 use crate::server::NetworkTaskError;
 
-/// Buffer for networking events. This struct exists to reduce heap allocations
-/// and is purely an optimization.
-pub struct NetworkEventBuffer(Vec<NetworkEvent>);
+pub(crate) struct NoNetworkEvents;
 
-impl NetworkEventBuffer {
-    pub fn drain(&mut self) -> std::vec::Drain<'_, NetworkEvent> {
-        self.0.drain(..)
+impl From<NoNetworkEvents> for GameplayEventBuffer {
+    fn from(_: NoNetworkEvents) -> Self {
+        Self::new()
+    }
+}
+
+pub(crate) trait DisconnectedEvent {
+    fn create_event(reason: DisconnectReason) -> GameplayEvent;
+}
+
+pub(crate) struct LoginServerDisconnectedEvent;
+pub(crate) struct CharacterServerDisconnectedEvent;
+pub(crate) struct MapServerDisconnectedEvent;
+
+impl DisconnectedEvent for LoginServerDisconnectedEvent {
+    fn create_event(reason: DisconnectReason) -> GameplayEvent {
+        GameplayEvent::LoginServerDisconnected { reason }
+    }
+}
+
+impl DisconnectedEvent for CharacterServerDisconnectedEvent {
+    fn create_event(reason: DisconnectReason) -> GameplayEvent {
+        GameplayEvent::CharacterServerDisconnected { reason }
+    }
+}
+
+impl DisconnectedEvent for MapServerDisconnectedEvent {
+    fn create_event(reason: DisconnectReason) -> GameplayEvent {
+        GameplayEvent::MapServerDisconnected { reason }
     }
 }
 
@@ -83,7 +91,8 @@ impl TimeSynchronization {
     }
 }
 
-pub struct NetworkingSystem<Callback> {
+/// Network-based gameplay provider that connects to Ragnarok Online servers.
+pub struct NetworkGameplayProvider<Callback> {
     command_sender: UnboundedSender<ServerConnectCommand>,
     time_synchronization: Arc<Mutex<TimeSynchronization>>,
     login_server_connection: ServerConnection,
@@ -92,14 +101,15 @@ pub struct NetworkingSystem<Callback> {
     packet_callback: Callback,
 }
 
-impl NetworkingSystem<NoPacketCallback> {
-    pub fn spawn() -> (Self, NetworkEventBuffer) {
+impl NetworkGameplayProvider<NoPacketCallback> {
+    /// Create a new network gameplay provider without packet callback.
+    pub fn spawn() -> (Self, GameplayEventBuffer) {
         let (command_sender, time_synchronization) = Self::spawn_networking_thread(NoPacketCallback);
         Self::inner_new(command_sender, time_synchronization, NoPacketCallback)
     }
 }
 
-impl<Callback> NetworkingSystem<Callback>
+impl<Callback> NetworkGameplayProvider<Callback>
 where
     Callback: PacketCallback + Send,
 {
@@ -107,8 +117,8 @@ where
         command_sender: UnboundedSender<ServerConnectCommand>,
         time_synchronization: Arc<Mutex<TimeSynchronization>>,
         packet_callback: Callback,
-    ) -> (Self, NetworkEventBuffer) {
-        let networking_system = Self {
+    ) -> (Self, GameplayEventBuffer) {
+        let provider = Self {
             command_sender,
             time_synchronization,
             login_server_connection: ServerConnection::Disconnected,
@@ -116,12 +126,13 @@ where
             map_server_connection: ServerConnection::Disconnected,
             packet_callback,
         };
-        let event_buffer = NetworkEventBuffer(Vec::new());
+        let event_buffer = GameplayEventBuffer::new();
 
-        (networking_system, event_buffer)
+        (provider, event_buffer)
     }
 
-    pub fn spawn_with_callback(packet_callback: Callback) -> (Self, NetworkEventBuffer) {
+    /// Create a new network gameplay provider with a packet callback.
+    pub fn spawn_with_callback(packet_callback: Callback) -> (Self, GameplayEventBuffer) {
         let (command_sender, time_synchronization) = Self::spawn_networking_thread(packet_callback.clone());
         Self::inner_new(command_sender, time_synchronization, packet_callback)
     }
@@ -234,7 +245,7 @@ where
         (command_sender, time_synchronization)
     }
 
-    fn handle_connection<Event>(connection: &mut ServerConnection, event_buffer: &mut NetworkEventBuffer)
+    fn handle_connection<Event>(connection: &mut ServerConnection, event_buffer: &mut GameplayEventBuffer)
     where
         Event: DisconnectedEvent,
     {
@@ -246,7 +257,7 @@ where
             } => loop {
                 match event_receiver.try_recv() {
                     Ok(login_event) => {
-                        event_buffer.0.push(login_event);
+                        event_buffer.push(login_event);
                     }
                     Err(TryRecvError::Empty) => {
                         *connection = ServerConnection::Connected {
@@ -257,31 +268,25 @@ where
                         break;
                     }
                     Err(..) => {
-                        event_buffer.0.push(Event::create_event(DisconnectReason::ConnectionError));
+                        event_buffer.push(Event::create_event(DisconnectReason::ConnectionError));
                         *connection = ServerConnection::Disconnected;
                         break;
                     }
                 }
             },
             ServerConnection::ClosingManually => {
-                event_buffer.0.push(Event::create_event(DisconnectReason::ClosedByClient));
+                event_buffer.push(Event::create_event(DisconnectReason::ClosedByClient));
                 *connection = ServerConnection::Disconnected;
             }
             _ => (),
         };
     }
 
-    pub fn get_events(&mut self, events: &mut NetworkEventBuffer) {
-        Self::handle_connection::<LoginServerDisconnectedEvent>(&mut self.login_server_connection, events);
-        Self::handle_connection::<CharacterServerDisconnectedEvent>(&mut self.character_server_connection, events);
-        Self::handle_connection::<MapServerDisconnectedEvent>(&mut self.map_server_connection, events);
-    }
-
     #[allow(clippy::too_many_arguments)]
     async fn handle_server_connection<PingPacket>(
         address: SocketAddr,
         mut action_receiver: UnboundedReceiver<Vec<u8>>,
-        event_sender: UnboundedSender<NetworkEvent>,
+        event_sender: UnboundedSender<GameplayEvent>,
         mut packet_handler: PacketHandler<NetworkEventList, (), Callback>,
         ping_factory: impl Fn(&Mutex<TimeSynchronization>) -> PingPacket,
         ping_frequency: Duration,
@@ -332,13 +337,13 @@ where
 
                     if read_account_id {
                         let account_id = AccountId::from_bytes(&mut byte_reader).unwrap();
-                        events.push(NetworkEvent::AccountId { account_id });
+                        events.push(GameplayEvent::AccountId { account_id });
                         read_account_id = false;
                     }
 
                     while !byte_reader.is_empty() {
                         match packet_handler.process_one(&mut byte_reader) {
-                            HandlerResult::Ok(packet_events) => events.extend(packet_events.0.into_iter()),
+                            HandlerResult::Ok(packet_events) => events.extend(packet_events.into_iter()),
                             HandlerResult::PacketCutOff => {
                                 let packet_start = byte_reader.get_offset();
                                 let packet_end = cut_off_buffer_base + received_bytes;
@@ -369,7 +374,7 @@ where
                     }
 
                     for event in events.drain(..) {
-                        if let NetworkEvent::UpdateClientTick {client_tick,received_at} = &event && let Ok(mut time_synchronization) = time_synchronization.lock() {
+                        if let GameplayEvent::UpdateClientTick {client_tick,received_at} = &event && let Ok(mut time_synchronization) = time_synchronization.lock() {
                             time_synchronization.estimated_client_tick(client_tick.0, *received_at);
                         }
 
@@ -384,165 +389,6 @@ where
                 }
             }
         }
-    }
-
-    pub fn connect_to_login_server(
-        &mut self,
-        packet_version: SupportedPacketVersion,
-        address: SocketAddr,
-        username: impl Into<String>,
-        password: impl Into<String>,
-    ) {
-        if !matches!(self.login_server_connection, ServerConnection::Disconnected) {
-            return;
-        }
-
-        let (action_sender, action_receiver) = tokio::sync::mpsc::unbounded_channel();
-        let (event_sender, event_receiver) = tokio::sync::mpsc::unbounded_channel();
-
-        self.command_sender
-            .send(ServerConnectCommand::Login {
-                address,
-                action_receiver,
-                event_sender,
-                packet_version,
-            })
-            .expect("network thread dropped");
-
-        let login_packet = LoginServerLoginPacket::new(username.into(), password.into());
-
-        self.packet_callback.outgoing_packet(&login_packet);
-
-        let mut byte_writer = ByteWriter::with_encoding(UTF_8);
-        login_packet.packet_to_bytes(&mut byte_writer).unwrap();
-        action_sender
-            .send(byte_writer.into_inner())
-            .expect("action receiver instantly dropped");
-
-        self.login_server_connection = ServerConnection::Connected {
-            action_sender,
-            event_receiver,
-            packet_version,
-        };
-    }
-
-    pub fn connect_to_character_server(
-        &mut self,
-        packet_version: SupportedPacketVersion,
-        login_data: &LoginServerLoginData,
-        server: CharacterServerInformation,
-    ) {
-        if !matches!(self.character_server_connection, ServerConnection::Disconnected) {
-            return;
-        }
-
-        let (action_sender, action_receiver) = tokio::sync::mpsc::unbounded_channel();
-        let (event_sender, event_receiver) = tokio::sync::mpsc::unbounded_channel();
-
-        let address = SocketAddr::new(IpAddr::V4(server.server_ip.into()), server.server_port);
-
-        self.command_sender
-            .send(ServerConnectCommand::Character {
-                address,
-                action_receiver,
-                event_sender,
-                packet_version,
-            })
-            .expect("network thread dropped");
-
-        let login_packet = CharacterServerLoginPacket::new(
-            login_data.account_id,
-            login_data.login_id1,
-            login_data.login_id2,
-            login_data.sex,
-        );
-
-        self.packet_callback.outgoing_packet(&login_packet);
-
-        let mut byte_writer = ByteWriter::with_encoding(UTF_8);
-        login_packet.packet_to_bytes(&mut byte_writer).unwrap();
-        action_sender
-            .send(byte_writer.into_inner())
-            .expect("action receiver instantly dropped");
-
-        self.character_server_connection = ServerConnection::Connected {
-            action_sender,
-            event_receiver,
-            packet_version,
-        };
-    }
-
-    pub fn connect_to_map_server(
-        &mut self,
-        packet_version: SupportedPacketVersion,
-        login_server_login_data: &LoginServerLoginData,
-        character_server_login_data: CharacterServerLoginData,
-    ) {
-        if !matches!(self.map_server_connection, ServerConnection::Disconnected) {
-            return;
-        }
-
-        let (action_sender, action_receiver) = tokio::sync::mpsc::unbounded_channel();
-        let (event_sender, event_receiver) = tokio::sync::mpsc::unbounded_channel();
-
-        let address = SocketAddr::new(character_server_login_data.server_ip, character_server_login_data.server_port);
-
-        self.command_sender
-            .send(ServerConnectCommand::Map {
-                address,
-                action_receiver,
-                event_sender,
-                packet_version,
-            })
-            .expect("network thread dropped");
-
-        let login_packet = MapServerLoginPacket::new(
-            login_server_login_data.account_id,
-            character_server_login_data.character_id,
-            login_server_login_data.login_id1,
-            // Always passing 100 seems to work fine for now, but it might cause
-            // issues when connecting to something other than rAthena.
-            ClientTick(100),
-            login_server_login_data.sex,
-        );
-
-        self.packet_callback.outgoing_packet(&login_packet);
-
-        let mut byte_writer = ByteWriter::with_encoding(UTF_8);
-        login_packet.packet_to_bytes(&mut byte_writer).unwrap();
-        action_sender
-            .send(byte_writer.into_inner())
-            .expect("action receiver instantly dropped");
-
-        self.map_server_connection = ServerConnection::Connected {
-            action_sender,
-            event_receiver,
-            packet_version,
-        };
-    }
-
-    pub fn disconnect_from_login_server(&mut self) {
-        self.login_server_connection = ServerConnection::ClosingManually;
-    }
-
-    pub fn disconnect_from_character_server(&mut self) {
-        self.character_server_connection = ServerConnection::ClosingManually;
-    }
-
-    pub fn disconnect_from_map_server(&mut self) {
-        self.map_server_connection = ServerConnection::ClosingManually;
-    }
-
-    pub fn is_login_server_connected(&self) -> bool {
-        matches!(self.login_server_connection, ServerConnection::Connected { .. })
-    }
-
-    pub fn is_character_server_connected(&self) -> bool {
-        matches!(self.character_server_connection, ServerConnection::Connected { .. })
-    }
-
-    pub fn is_map_server_connected(&self) -> bool {
-        matches!(self.map_server_connection, ServerConnection::Connected { .. })
     }
 
     fn character_server_packet_version(&self) -> Result<SupportedPacketVersion, NotConnectedError> {
@@ -625,20 +471,185 @@ where
 
         Ok(packet_handler)
     }
+}
 
-    pub fn request_character_list(&mut self) -> Result<(), NotConnectedError> {
+// Implementation of GameplayProvider trait for NetworkGameplayProvider
+impl<Callback> GameplayProvider for NetworkGameplayProvider<Callback>
+where
+    Callback: PacketCallback + Send,
+{
+    fn get_events(&mut self, events: &mut GameplayEventBuffer) {
+        Self::handle_connection::<LoginServerDisconnectedEvent>(&mut self.login_server_connection, events);
+        Self::handle_connection::<CharacterServerDisconnectedEvent>(&mut self.character_server_connection, events);
+        Self::handle_connection::<MapServerDisconnectedEvent>(&mut self.map_server_connection, events);
+    }
+
+    fn connect_to_login_server(&mut self, packet_version: SupportedPacketVersion, address: SocketAddr, username: &str, password: &str) {
+        if !matches!(self.login_server_connection, ServerConnection::Disconnected) {
+            return;
+        }
+
+        let (action_sender, action_receiver) = tokio::sync::mpsc::unbounded_channel();
+        let (event_sender, event_receiver) = tokio::sync::mpsc::unbounded_channel();
+
+        self.command_sender
+            .send(ServerConnectCommand::Login {
+                address,
+                action_receiver,
+                event_sender,
+                packet_version,
+            })
+            .expect("network thread dropped");
+
+        let login_packet = LoginServerLoginPacket::new(username.to_string(), password.to_string());
+
+        self.packet_callback.outgoing_packet(&login_packet);
+
+        let mut byte_writer = ByteWriter::with_encoding(UTF_8);
+        login_packet.packet_to_bytes(&mut byte_writer).unwrap();
+        action_sender
+            .send(byte_writer.into_inner())
+            .expect("action receiver instantly dropped");
+
+        self.login_server_connection = ServerConnection::Connected {
+            action_sender,
+            event_receiver,
+            packet_version,
+        };
+    }
+
+    fn connect_to_character_server(
+        &mut self,
+        packet_version: SupportedPacketVersion,
+        login_data: &LoginServerLoginData,
+        server: CharacterServerInformation,
+    ) {
+        if !matches!(self.character_server_connection, ServerConnection::Disconnected) {
+            return;
+        }
+
+        let (action_sender, action_receiver) = tokio::sync::mpsc::unbounded_channel();
+        let (event_sender, event_receiver) = tokio::sync::mpsc::unbounded_channel();
+
+        let address = SocketAddr::new(IpAddr::V4(server.server_ip.into()), server.server_port);
+
+        self.command_sender
+            .send(ServerConnectCommand::Character {
+                address,
+                action_receiver,
+                event_sender,
+                packet_version,
+            })
+            .expect("network thread dropped");
+
+        let login_packet = CharacterServerLoginPacket::new(
+            login_data.account_id,
+            login_data.login_id1,
+            login_data.login_id2,
+            login_data.sex,
+        );
+
+        self.packet_callback.outgoing_packet(&login_packet);
+
+        let mut byte_writer = ByteWriter::with_encoding(UTF_8);
+        login_packet.packet_to_bytes(&mut byte_writer).unwrap();
+        action_sender
+            .send(byte_writer.into_inner())
+            .expect("action receiver instantly dropped");
+
+        self.character_server_connection = ServerConnection::Connected {
+            action_sender,
+            event_receiver,
+            packet_version,
+        };
+    }
+
+    fn connect_to_map_server(
+        &mut self,
+        packet_version: SupportedPacketVersion,
+        login_server_login_data: &LoginServerLoginData,
+        character_server_login_data: CharacterServerLoginData,
+    ) {
+        if !matches!(self.map_server_connection, ServerConnection::Disconnected) {
+            return;
+        }
+
+        let (action_sender, action_receiver) = tokio::sync::mpsc::unbounded_channel();
+        let (event_sender, event_receiver) = tokio::sync::mpsc::unbounded_channel();
+
+        let address = SocketAddr::new(character_server_login_data.server_ip, character_server_login_data.server_port);
+
+        self.command_sender
+            .send(ServerConnectCommand::Map {
+                address,
+                action_receiver,
+                event_sender,
+                packet_version,
+            })
+            .expect("network thread dropped");
+
+        let login_packet = MapServerLoginPacket::new(
+            login_server_login_data.account_id,
+            character_server_login_data.character_id,
+            login_server_login_data.login_id1,
+            // Always passing 100 seems to work fine for now, but it might cause
+            // issues when connecting to something other than rAthena.
+            ClientTick(100),
+            login_server_login_data.sex,
+        );
+
+        self.packet_callback.outgoing_packet(&login_packet);
+
+        let mut byte_writer = ByteWriter::with_encoding(UTF_8);
+        login_packet.packet_to_bytes(&mut byte_writer).unwrap();
+        action_sender
+            .send(byte_writer.into_inner())
+            .expect("action receiver instantly dropped");
+
+        self.map_server_connection = ServerConnection::Connected {
+            action_sender,
+            event_receiver,
+            packet_version,
+        };
+    }
+
+    fn disconnect_from_login_server(&mut self) {
+        self.login_server_connection = ServerConnection::ClosingManually;
+    }
+
+    fn disconnect_from_character_server(&mut self) {
+        self.character_server_connection = ServerConnection::ClosingManually;
+    }
+
+    fn disconnect_from_map_server(&mut self) {
+        self.map_server_connection = ServerConnection::ClosingManually;
+    }
+
+    fn is_login_server_connected(&self) -> bool {
+        matches!(self.login_server_connection, ServerConnection::Connected { .. })
+    }
+
+    fn is_character_server_connected(&self) -> bool {
+        matches!(self.character_server_connection, ServerConnection::Connected { .. })
+    }
+
+    fn is_map_server_connected(&self) -> bool {
+        matches!(self.map_server_connection, ServerConnection::Connected { .. })
+    }
+
+    fn request_character_list(&mut self) -> Result<(), NotConnectedError> {
         match self.character_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_character_server_packet(RequestCharacterListPacket::default()),
         }
     }
 
-    pub fn select_character(&mut self, character_slot: usize) -> Result<(), NotConnectedError> {
+    fn select_character(&mut self, character_slot: usize) -> Result<(), NotConnectedError> {
         match self.character_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_character_server_packet(SelectCharacterPacket::new(character_slot as u8)),
         }
     }
 
-    pub fn create_character(&mut self, slot: usize, name: String) -> Result<(), NotConnectedError> {
+    fn create_character(&mut self, slot: usize, name: String) -> Result<(), NotConnectedError> {
         let hair_color = 0;
         let hair_style = 0;
         let start_job = 0;
@@ -651,7 +662,7 @@ where
         }
     }
 
-    pub fn delete_character(&mut self, character_id: CharacterId) -> Result<(), NotConnectedError> {
+    fn delete_character(&mut self, character_id: CharacterId) -> Result<(), NotConnectedError> {
         let email = "a@a.com".to_string();
 
         match self.character_server_packet_version()? {
@@ -659,7 +670,7 @@ where
         }
     }
 
-    pub fn switch_character_slot(&mut self, origin_slot: usize, destination_slot: usize) -> Result<(), NotConnectedError> {
+    fn switch_character_slot(&mut self, origin_slot: usize, destination_slot: usize) -> Result<(), NotConnectedError> {
         match self.character_server_packet_version()? {
             SupportedPacketVersion::_20220406 => {
                 self.send_character_server_packet(SwitchCharacterSlotPacket::new(origin_slot as u16, destination_slot as u16))
@@ -667,13 +678,13 @@ where
         }
     }
 
-    pub fn map_loaded(&mut self) -> Result<(), NotConnectedError> {
+    fn map_loaded(&mut self) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(MapLoadedPacket::default()),
         }
     }
 
-    pub fn request_client_tick(&mut self) -> Result<(), NotConnectedError> {
+    fn request_client_tick(&mut self) -> Result<(), NotConnectedError> {
         let client_tick = self
             .time_synchronization
             .lock()
@@ -685,43 +696,43 @@ where
         }
     }
 
-    pub fn respawn(&mut self) -> Result<(), NotConnectedError> {
+    fn respawn(&mut self) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(RestartPacket::new(RestartType::Respawn)),
         }
     }
 
-    pub fn log_out(&mut self) -> Result<(), NotConnectedError> {
+    fn log_out(&mut self) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(RestartPacket::new(RestartType::Disconnect)),
         }
     }
 
-    pub fn player_move(&mut self, position: WorldPosition) -> Result<(), NotConnectedError> {
+    fn player_move(&mut self, position: WorldPosition) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(RequestPlayerMovePacket::new(position)),
         }
     }
 
-    pub fn warp_to_map(&mut self, map_name: String, position: TilePosition) -> Result<(), NotConnectedError> {
+    fn warp_to_map(&mut self, map_name: String, position: TilePosition) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(RequestWarpToMapPacket::new(map_name, position)),
         }
     }
 
-    pub fn entity_details(&mut self, entity_id: EntityId) -> Result<(), NotConnectedError> {
+    fn entity_details(&mut self, entity_id: EntityId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(RequestDetailsPacket::new(entity_id)),
         }
     }
 
-    pub fn player_attack(&mut self, entity_id: EntityId) -> Result<(), NotConnectedError> {
+    fn player_attack(&mut self, entity_id: EntityId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(RequestActionPacket::new(entity_id, Action::Attack)),
         }
     }
 
-    pub fn send_chat_message(&mut self, player_name: &str, text: &str) -> Result<(), NotConnectedError> {
+    fn send_chat_message(&mut self, player_name: &str, text: &str) -> Result<(), NotConnectedError> {
         let message = format!("{} : {}", player_name, text);
 
         match self.map_server_packet_version()? {
@@ -729,49 +740,49 @@ where
         }
     }
 
-    pub fn start_dialog(&mut self, npc_id: EntityId) -> Result<(), NotConnectedError> {
+    fn start_dialog(&mut self, npc_id: EntityId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(StartDialogPacket::new(npc_id)),
         }
     }
 
-    pub fn next_dialog(&mut self, npc_id: EntityId) -> Result<(), NotConnectedError> {
+    fn next_dialog(&mut self, npc_id: EntityId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(NextDialogPacket::new(npc_id)),
         }
     }
 
-    pub fn close_dialog(&mut self, npc_id: EntityId) -> Result<(), NotConnectedError> {
+    fn close_dialog(&mut self, npc_id: EntityId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(CloseDialogPacket::new(npc_id)),
         }
     }
 
-    pub fn choose_dialog_option(&mut self, npc_id: EntityId, option: i8) -> Result<(), NotConnectedError> {
+    fn choose_dialog_option(&mut self, npc_id: EntityId, option: i8) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(ChooseDialogOptionPacket::new(npc_id, option)),
         }
     }
 
-    pub fn request_item_equip(&mut self, item_index: InventoryIndex, equip_position: EquipPosition) -> Result<(), NotConnectedError> {
+    fn request_item_equip(&mut self, item_index: InventoryIndex, equip_position: EquipPosition) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(RequestEquipItemPacket::new(item_index, equip_position)),
         }
     }
 
-    pub fn request_item_unequip(&mut self, item_index: InventoryIndex) -> Result<(), NotConnectedError> {
+    fn request_item_unequip(&mut self, item_index: InventoryIndex) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(RequestUnequipItemPacket::new(item_index)),
         }
     }
 
-    pub fn cast_skill(&mut self, skill_id: SkillId, skill_level: SkillLevel, entity_id: EntityId) -> Result<(), NotConnectedError> {
+    fn cast_skill(&mut self, skill_id: SkillId, skill_level: SkillLevel, entity_id: EntityId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(UseSkillAtIdPacket::new(skill_level, skill_id, entity_id)),
         }
     }
 
-    pub fn cast_ground_skill(
+    fn cast_ground_skill(
         &mut self,
         skill_id: SkillId,
         skill_level: SkillLevel,
@@ -784,36 +795,31 @@ where
         }
     }
 
-    pub fn cast_channeling_skill(
-        &mut self,
-        skill_id: SkillId,
-        skill_level: SkillLevel,
-        entity_id: EntityId,
-    ) -> Result<(), NotConnectedError> {
+    fn cast_channeling_skill(&mut self, skill_id: SkillId, skill_level: SkillLevel, entity_id: EntityId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(StartUseSkillPacket::new(skill_id, skill_level, entity_id)),
         }
     }
 
-    pub fn stop_channeling_skill(&mut self, skill_id: SkillId) -> Result<(), NotConnectedError> {
+    fn stop_channeling_skill(&mut self, skill_id: SkillId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(EndUseSkillPacket::new(skill_id)),
         }
     }
 
-    pub fn add_friend(&mut self, name: String) -> Result<(), NotConnectedError> {
+    fn add_friend(&mut self, name: String) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(AddFriendPacket::new(name)),
         }
     }
 
-    pub fn remove_friend(&mut self, account_id: AccountId, character_id: CharacterId) -> Result<(), NotConnectedError> {
+    fn remove_friend(&mut self, account_id: AccountId, character_id: CharacterId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(RemoveFriendPacket::new(account_id, character_id)),
         }
     }
 
-    pub fn reject_friend_request(&mut self, account_id: AccountId, character_id: CharacterId) -> Result<(), NotConnectedError> {
+    fn reject_friend_request(&mut self, account_id: AccountId, character_id: CharacterId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(FriendRequestResponsePacket::new(
                 account_id,
@@ -823,7 +829,7 @@ where
         }
     }
 
-    pub fn accept_friend_request(&mut self, account_id: AccountId, character_id: CharacterId) -> Result<(), NotConnectedError> {
+    fn accept_friend_request(&mut self, account_id: AccountId, character_id: CharacterId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(FriendRequestResponsePacket::new(
                 account_id,
@@ -833,19 +839,19 @@ where
         }
     }
 
-    pub fn set_hotkey_data(&mut self, tab: HotbarTab, index: HotbarSlot, hotkey_data: HotkeyData) -> Result<(), NotConnectedError> {
+    fn set_hotkey_data(&mut self, tab: HotbarTab, index: HotbarSlot, hotkey_data: HotkeyData) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(SetHotkeyData2Packet::new(tab, index, hotkey_data)),
         }
     }
 
-    pub fn select_buy_or_sell(&mut self, shop_id: ShopId, buy_or_sell: BuyOrSellOption) -> Result<(), NotConnectedError> {
+    fn select_buy_or_sell(&mut self, shop_id: ShopId, buy_or_sell: BuyOrSellOption) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(SelectBuyOrSellPacket::new(shop_id, buy_or_sell)),
         }
     }
 
-    pub fn purchase_items(&mut self, items: Vec<ShopItem<u32>>) -> Result<(), NotConnectedError> {
+    fn purchase_items(&mut self, items: Vec<ShopItem<u32>>) -> Result<(), NotConnectedError> {
         let item_information = items
             .into_iter()
             .map(|item| BuyShopItemInformation {
@@ -859,19 +865,19 @@ where
         }
     }
 
-    pub fn close_shop(&mut self) -> Result<(), NotConnectedError> {
+    fn close_shop(&mut self) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(CloseShopPacket::new()),
         }
     }
 
-    pub fn sell_items(&mut self, items: Vec<SoldItemInformation>) -> Result<(), NotConnectedError> {
+    fn sell_items(&mut self, items: Vec<SoldItemInformation>) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(SellItemsPacket { items }),
         }
     }
 
-    pub fn request_stat_up(&mut self, stat_type: StatUpType) -> Result<(), NotConnectedError> {
+    fn request_stat_up(&mut self, stat_type: StatUpType) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(RequestStatUpPacket::new(stat_type)),
         }
@@ -882,23 +888,23 @@ where
 mod packet_handlers {
     use ragnarok_packets::handler::NoPacketCallback;
 
-    use crate::{NetworkingSystem, SupportedPacketVersion};
+    use super::*;
 
     #[test]
     fn login_server() {
-        let result = NetworkingSystem::create_login_server_packet_handler(NoPacketCallback, SupportedPacketVersion::_20220406);
+        let result = NetworkGameplayProvider::create_login_server_packet_handler(NoPacketCallback, SupportedPacketVersion::_20220406);
         assert!(result.is_ok());
     }
 
     #[test]
     fn character_server() {
-        let result = NetworkingSystem::create_character_server_packet_handler(NoPacketCallback, SupportedPacketVersion::_20220406);
+        let result = NetworkGameplayProvider::create_character_server_packet_handler(NoPacketCallback, SupportedPacketVersion::_20220406);
         assert!(result.is_ok());
     }
 
     #[test]
     fn map_server() {
-        let result = NetworkingSystem::create_map_server_packet_handler(NoPacketCallback, SupportedPacketVersion::_20220406);
+        let result = NetworkGameplayProvider::create_map_server_packet_handler(NoPacketCallback, SupportedPacketVersion::_20220406);
         assert!(result.is_ok());
     }
 }

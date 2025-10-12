@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::fmt::Display;
 
+use korangar_gameplay::SellItem;
 use korangar_graphics::{CornerDiameter, ShadowPadding};
 use korangar_interface::element::store::{ElementStore, ElementStoreMut};
 use korangar_interface::element::{Element, ElementBox, ElementSet};
@@ -9,7 +10,6 @@ use korangar_interface::layout::area::Area;
 use korangar_interface::layout::{Resolver, WindowLayout};
 use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};
 use korangar_interface::window::{CustomWindow, Window};
-use korangar_networking::SellItem;
 use rust_state::{Context, ManuallyAssertExt, Path, Selector, VecIndexExt};
 
 use super::WindowClass;

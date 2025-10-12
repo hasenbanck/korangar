@@ -1,6 +1,5 @@
+use korangar_gameplay::GameplayProvider;
 use korangar_interface::element::StateElement;
-use korangar_networking::NetworkingSystem;
-use ragnarok_packets::handler::PacketCallback;
 use ragnarok_packets::{HotbarSlot, HotbarTab, HotkeyData};
 use rust_state::RustState;
 
@@ -18,11 +17,8 @@ impl Hotbar {
     }
 
     /// Update the slot and notify the map server.
-    pub fn update_slot<Callback>(&mut self, networking_system: &mut NetworkingSystem<Callback>, slot: HotbarSlot, skill: Skill)
-    where
-        Callback: PacketCallback + Send,
-    {
-        let _ = networking_system.set_hotkey_data(HotbarTab(0), slot, HotkeyData {
+    pub fn update_slot(&mut self, provider: &mut dyn GameplayProvider, slot: HotbarSlot, skill: Skill) {
+        let _ = provider.set_hotkey_data(HotbarTab(0), slot, HotkeyData {
             is_skill: true as u8,
             skill_id: skill.skill_id.0 as u32,
             quantity_or_skill_level: skill.skill_level,
@@ -32,14 +28,7 @@ impl Hotbar {
     }
 
     /// Swap two slots in the hotbar and notify the map server.
-    pub fn swap_slot<Callback>(
-        &mut self,
-        networking_system: &mut NetworkingSystem<Callback>,
-        source_slot: HotbarSlot,
-        destination_slot: HotbarSlot,
-    ) where
-        Callback: PacketCallback + Send,
-    {
+    pub fn swap_slot(&mut self, provider: &mut dyn GameplayProvider, source_slot: HotbarSlot, destination_slot: HotbarSlot) {
         if source_slot != destination_slot {
             let first = self.skills[source_slot.0 as usize].take();
             let second = self.skills[destination_slot.0 as usize].take();
@@ -62,8 +51,8 @@ impl Hotbar {
                 })
                 .unwrap_or(HotkeyData::UNBOUND);
 
-            let _ = networking_system.set_hotkey_data(HotbarTab(0), destination_slot, first_data);
-            let _ = networking_system.set_hotkey_data(HotbarTab(0), source_slot, second_data);
+            let _ = provider.set_hotkey_data(HotbarTab(0), destination_slot, first_data);
+            let _ = provider.set_hotkey_data(HotbarTab(0), source_slot, second_data);
 
             self.skills[source_slot.0 as usize] = second;
             self.skills[destination_slot.0 as usize] = first;
@@ -76,11 +65,8 @@ impl Hotbar {
     }
 
     /// Clear the slot and notify the map server.
-    pub fn clear_slot<Callback>(&mut self, networking_system: &mut NetworkingSystem<Callback>, slot: HotbarSlot)
-    where
-        Callback: PacketCallback + Send,
-    {
-        let _ = networking_system.set_hotkey_data(HotbarTab(0), slot, HotkeyData::UNBOUND);
+    pub fn clear_slot(&mut self, provider: &mut dyn GameplayProvider, slot: HotbarSlot) {
+        let _ = provider.set_hotkey_data(HotbarTab(0), slot, HotkeyData::UNBOUND);
 
         self.skills[slot.0 as usize] = None;
     }

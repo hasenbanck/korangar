@@ -1,6 +1,6 @@
 use korangar_components::item_box;
+use korangar_gameplay::InventoryItem;
 use korangar_interface::window::{CustomWindow, Window};
-use korangar_networking::InventoryItem;
 use rust_state::{Path, VecIndexExt};
 
 use crate::ItemSource;

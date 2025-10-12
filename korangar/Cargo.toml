@@ -22,10 +22,11 @@ korangar-components = { path = "components" }
 korangar-collision = { workspace = true, features = ["interface"] }
 korangar-container = { workspace = true, features = ["interface"] }
 korangar-debug = { workspace = true, optional = true }
+korangar-gameplay = { workspace = true, features = ["interface"] }
 korangar-graphics = { workspace = true }
 korangar-interface = { workspace = true, features = ["serde", "cgmath", "theme-element"] }
 korangar-loaders = { workspace = true }
-korangar-networking = { workspace = true, features = ["interface"] }
+korangar-network-client = { workspace = true }
 korangar-video = { workspace = true }
 lunify = { workspace = true }
 mlua = { workspace = true, features = ["lua51", "vendored"] }
@@ -52,7 +53,7 @@ winit = { workspace = true }
 sevenz-rust2 = { workspace = true, features = ["compress"] }
 
 [features]
-debug = ["korangar-audio/debug", "korangar-debug", "korangar-graphics/debug", "korangar-interface/debug", "korangar-networking/debug", "ragnarok-packets/debug"]
+debug = ["korangar-audio/debug", "korangar-graphics/debug", "korangar-debug", "korangar-interface/debug", "ragnarok-packets/debug"]
 plain = ["korangar-debug/plain"]
 unicode = ["korangar-debug/unicode"]
 flac = ["korangar-audio/flac"]

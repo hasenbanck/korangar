@@ -2,16 +2,15 @@ use std::time::Instant;
 
 use ragnarok_packets::*;
 
+use crate::entity::EntityData;
 use crate::hotkey::HotkeyState;
-use crate::items::ShopItem;
-use crate::{
-    CharacterServerLoginData, EntityData, InventoryItem, LoginServerLoginData, MessageColor, NoMetadata,
-    UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason,
-};
+use crate::items::{InventoryItem, NoMetadata, ShopItem};
+use crate::message::MessageColor;
+use crate::types::{CharacterServerLoginData, LoginServerLoginData, UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason};
 
-/// An event triggered by one of the Ragnarok Online servers.
+/// An event triggered by one of the gameplay provider.
 #[derive(Debug)]
-pub enum NetworkEvent {
+pub enum GameplayEvent {
     LoginServerConnected {
         character_servers: Vec<CharacterServerInformation>,
         login_data: LoginServerLoginData,
@@ -243,68 +242,8 @@ pub enum NetworkEvent {
     },
 }
 
-/// New-type so we can implement some `From` traits. This will help when
-/// registering the packet handlers.
-#[derive(Default)]
-pub(crate) struct NetworkEventList(pub Vec<NetworkEvent>);
-
-pub(crate) struct NoNetworkEvents;
-
-impl From<NetworkEvent> for NetworkEventList {
-    fn from(event: NetworkEvent) -> Self {
-        Self(vec![event])
-    }
-}
-
-impl From<Vec<NetworkEvent>> for NetworkEventList {
-    fn from(events: Vec<NetworkEvent>) -> Self {
-        Self(events)
-    }
-}
-
-impl From<Option<NetworkEvent>> for NetworkEventList {
-    fn from(event: Option<NetworkEvent>) -> Self {
-        match event {
-            Some(event) => Self(vec![event]),
-            None => Self(Vec::new()),
-        }
-    }
-}
-
-impl From<NoNetworkEvents> for NetworkEventList {
-    fn from(_: NoNetworkEvents) -> Self {
-        Self(Vec::new())
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DisconnectReason {
     ClosedByClient,
     ConnectionError,
-}
-
-pub(crate) trait DisconnectedEvent {
-    fn create_event(reason: DisconnectReason) -> NetworkEvent;
-}
-
-pub(crate) struct LoginServerDisconnectedEvent;
-pub(crate) struct CharacterServerDisconnectedEvent;
-pub(crate) struct MapServerDisconnectedEvent;
-
-impl DisconnectedEvent for LoginServerDisconnectedEvent {
-    fn create_event(reason: DisconnectReason) -> NetworkEvent {
-        NetworkEvent::LoginServerDisconnected { reason }
-    }
-}
-
-impl DisconnectedEvent for CharacterServerDisconnectedEvent {
-    fn create_event(reason: DisconnectReason) -> NetworkEvent {
-        NetworkEvent::CharacterServerDisconnected { reason }
-    }
-}
-
-impl DisconnectedEvent for MapServerDisconnectedEvent {
-    fn create_event(reason: DisconnectReason) -> NetworkEvent {
-        NetworkEvent::MapServerDisconnected { reason }
-    }
 }

@@ -6,6 +6,7 @@ use cgmath::{EuclideanSpace, Point3, Vector2, VectorSpace};
 use korangar_audio::{AudioEngine, SoundEffectKey};
 #[cfg(feature = "debug")]
 use korangar_debug::logging::Colorize;
+use korangar_gameplay::EntityData;
 #[cfg(feature = "debug")]
 use korangar_graphics::{BindlessSupport, DebugRectangleInstruction, MarkerIdentifier, reduce_vertices};
 #[cfg(feature = "debug")]
@@ -13,7 +14,6 @@ use korangar_graphics::{Buffer, ModelVertex};
 use korangar_graphics::{EntityInstruction, ScreenPosition, ScreenSize};
 use korangar_interface::element::StateElement;
 use korangar_interface::window::{StateWindow, Window};
-use korangar_networking::EntityData;
 use ragnarok_packets::{AccountId, CharacterInformation, ClientTick, Direction, EntityId, Sex, StatType, TilePosition, WorldPosition};
 use rust_state::{Path, RustState, VecItem};
 #[cfg(feature = "debug")]

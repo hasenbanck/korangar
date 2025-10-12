@@ -1,3 +1,4 @@
+use korangar_gameplay::MessageColor;
 use korangar_interface::application::Size;
 use korangar_interface::components::text_box::DefaultHandler;
 use korangar_interface::element::store::{ElementStore, ElementStoreMut};
@@ -6,7 +7,6 @@ use korangar_interface::layout::area::Area;
 use korangar_interface::layout::{Resolver, WindowLayout};
 use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};
 use korangar_interface::window::{CustomWindow, Window};
-use korangar_networking::MessageColor;
 use rust_state::{Context, Path, RustState};
 
 use super::WindowClass;

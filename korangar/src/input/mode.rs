@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
+use korangar_gameplay::InventoryItem;
 use korangar_graphics::Texture;
 use korangar_interface::MouseMode;
-use korangar_networking::InventoryItem;
 use ragnarok_packets::TilePosition;
 
 use crate::interface::resource::{ItemSource, SkillSource};

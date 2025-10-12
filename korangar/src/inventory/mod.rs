@@ -3,9 +3,9 @@ mod skills;
 
 use std::sync::Arc;
 
+use korangar_gameplay::{InventoryItem, InventoryItemDetails, NoMetadata};
 use korangar_graphics::Texture;
 use korangar_interface::element::StateElement;
-use korangar_networking::{InventoryItem, InventoryItemDetails, NoMetadata};
 use ragnarok_packets::{EquipPosition, InventoryIndex, ItemId};
 use rust_state::RustState;
 

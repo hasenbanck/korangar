@@ -6,6 +6,7 @@ pub mod theme;
 use std::cell::Cell;
 use std::sync::Arc;
 
+use korangar_gameplay::{MessageColor, SellItem, ShopItem};
 #[cfg(feature = "debug")]
 use korangar_graphics::RenderOptions;
 use korangar_graphics::{CornerDiameter, ScreenClip, ScreenPosition, ScreenSize, ShadowPadding};
@@ -21,7 +22,6 @@ use korangar_interface::element::StateElement;
 use korangar_interface::layout::tooltip::TooltipTheme;
 use korangar_interface::theme::ThemePathGetter;
 use korangar_interface::window::{StateWindow, WindowTheme};
-use korangar_networking::{MessageColor, SellItem, ShopItem};
 use localization::Localization;
 #[cfg(feature = "debug")]
 use ragnarok_formats::map::{EffectSource, LightSource, MapData, SoundSource};

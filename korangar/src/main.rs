@@ -59,6 +59,10 @@ use korangar_debug::logging::{Colorize, print_debug};
 use korangar_debug::profile_block;
 #[cfg(feature = "debug")]
 use korangar_debug::profiling::Profiler;
+use korangar_gameplay::{
+    DisconnectReason, GameplayEvent, GameplayEventBuffer, GameplayProvider, HotkeyState, InventoryItemDetails, LoginServerLoginData,
+    MessageColor, SellItem, SupportedPacketVersion,
+};
 use korangar_graphics::{
     Capabilities, DirectionalLightInstruction, DirectionalShadowPartition, EntityInstruction, GraphicsEngine, GraphicsEngineDescriptor,
     ModelBatch, ModelInstruction, NUMBER_OF_POINT_LIGHTS_WITH_SHADOWS, PARTITION_COUNT, PickerTarget, PointLightInstruction,
@@ -71,18 +75,13 @@ use korangar_graphics::{
 };
 use korangar_interface::Interface;
 use korangar_interface::layout::MouseButton;
-use korangar_networking::{
-    DisconnectReason, HotkeyState, LoginServerLoginData, MessageColor, NetworkEvent, NetworkEventBuffer, NetworkingSystem, SellItem,
-    SupportedPacketVersion,
-};
+use korangar_network_client::NetworkGameplayProvider;
 use loaders::Color;
 #[cfg(feature = "debug")]
-use networking::{PacketHistory, PacketHistoryCallback};
-#[cfg(not(feature = "debug"))]
-use ragnarok_packets::handler::NoPacketCallback;
+use networking::PacketHistory;
 use ragnarok_packets::{
-    BuyShopItemsResult, CharacterServerInformation, Direction, DisappearanceReason, EntityId, HotbarSlot, SellItemsResult, SkillId,
-    SkillType, TilePosition, UnitId, WorldPosition,
+    BuyShopItemsResult, CharacterServerInformation, ClientTick, Direction, DisappearanceReason, EntityId, HotbarSlot, SellItemsResult,
+    SkillId, SkillType, TilePosition, UnitId, WorldPosition,
 };
 use renderer::InterfaceRenderer;
 use rust_state::{Context, ManuallyAssertExt};
@@ -109,7 +108,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::PhysicalKey;
 use winit::window::{Icon, Window, WindowId};
 
-use crate::input::{InputEvent, InputSystem};
+use crate::input::{InputEvent, InputReport, InputSystem};
 use crate::interface::cursor::{MouseCursor, MouseCursorState};
 use crate::interface::resource::{ItemSource, SkillSource};
 use crate::interface::windows::*;
@@ -394,7 +393,7 @@ struct Client {
     point_shadow_camera: PointShadowCamera,
 
     input_event_buffer: Vec<InputEvent>,
-    network_event_buffer: NetworkEventBuffer,
+    gameplay_event_buffer: GameplayEventBuffer,
     // TODO: Move or remove this.
     saved_login_data: Option<LoginServerLoginData>,
     // TODO: Move or remove this.
@@ -428,10 +427,7 @@ struct Client {
     walk_indicator_texture: Arc<Texture>,
     main_menu_click_sound_effect: SoundEffectKey,
 
-    #[cfg(feature = "debug")]
-    networking_system: NetworkingSystem<PacketHistoryCallback>,
-    #[cfg(not(feature = "debug"))]
-    networking_system: NetworkingSystem<NoPacketCallback>,
+    gameplay_provider: Box<dyn GameplayProvider>,
     audio_engine: Arc<AudioEngine<GameFileLoader>>,
     active_interface_settings: InterfaceSettings,
     active_graphics_settings: GraphicsSettings,
@@ -676,14 +672,18 @@ impl Client {
         let saved_username = String::new();
         let saved_packet_version = FALLBACK_PACKET_VERSION;
 
-        time_phase!("initialize networking", {
+        time_phase!("initialize gameplay provider", {
             #[cfg(not(feature = "debug"))]
-            let (networking_system, network_event_buffer) = NetworkingSystem::spawn();
+            let (networking_system, gameplay_event_buffer) = NetworkGameplayProvider::spawn();
+            #[cfg(not(feature = "debug"))]
+            let gameplay_provider: Box<dyn GameplayProvider> = Box::new(networking_system);
 
             #[cfg(feature = "debug")]
             let (packet_history, packet_history_callback) = PacketHistory::new();
             #[cfg(feature = "debug")]
-            let (networking_system, network_event_buffer) = NetworkingSystem::spawn_with_callback(packet_history_callback);
+            let (networking_system, gameplay_event_buffer) = NetworkGameplayProvider::spawn_with_callback(packet_history_callback);
+            #[cfg(feature = "debug")]
+            let gameplay_provider: Box<dyn GameplayProvider> = Box::new(networking_system);
         });
 
         time_phase!("create resources", {
@@ -810,7 +810,7 @@ impl Client {
             directional_shadow_partitions,
             point_shadow_camera,
             input_event_buffer,
-            network_event_buffer,
+            gameplay_event_buffer,
             saved_login_data,
             saved_character_server,
             saved_login_server_address,
@@ -833,7 +833,7 @@ impl Client {
             tile_texture_set,
             walk_indicator_texture,
             main_menu_click_sound_effect,
-            networking_system,
+            gameplay_provider,
             audio_engine,
             active_interface_settings,
             active_graphics_settings: graphics_settings,
@@ -918,7 +918,7 @@ impl Client {
         // TODO: Rename
         let input_report = self.input_system.update_delta(client_tick);
 
-        self.networking_system.get_events(&mut self.network_event_buffer);
+        self.gameplay_provider.get_events(&mut self.gameplay_event_buffer);
 
         #[cfg(feature = "debug")]
         let picker_measurement = Profiler::start_measurement("update picker target");
@@ -930,7 +930,7 @@ impl Client {
                 .iter_mut()
                 .find(|entity| entity.get_entity_id() == EntityId(entity_id))
             && entity.are_details_unavailable()
-            && self.networking_system.entity_details(EntityId(entity_id)).is_ok()
+            && self.gameplay_provider.entity_details(EntityId(entity_id)).is_ok()
         {
             entity.set_details_requested();
         }
@@ -939,1463 +939,17 @@ impl Client {
         picker_measurement.stop();
 
         #[cfg(feature = "debug")]
-        let network_event_measurement = Profiler::start_measurement("process network events");
+        let gameplay_event_measurement = Profiler::start_measurement("process gameplay events");
 
-        for event in self.network_event_buffer.drain() {
-            match event {
-                NetworkEvent::LoginServerConnected {
-                    character_servers,
-                    login_data,
-                } => {
-                    self.audio_engine.play_sound_effect(self.main_menu_click_sound_effect);
-
-                    self.saved_login_data = Some(login_data);
-
-                    *self.client_state.follow_mut(client_state().character_servers()) = character_servers;
-
-                    #[cfg(not(feature = "debug"))]
-                    self.interface.close_all_windows();
-
-                    #[cfg(feature = "debug")]
-                    self.interface.close_all_windows_except(DEBUG_WINDOWS);
-
-                    self.interface
-                        .open_window(ServerSelectionWindow::new(client_state().character_servers()));
-                }
-                NetworkEvent::LoginServerConnectionFailed { message, .. } => {
-                    self.networking_system.disconnect_from_login_server();
-
-                    self.interface.open_window(ErrorWindow::new(message.to_owned()));
-                }
-                NetworkEvent::LoginServerDisconnected { reason } => {
-                    if reason != DisconnectReason::ClosedByClient {
-                        // TODO: Make this an on-screen popup.
-                        #[cfg(feature = "debug")]
-                        print_debug!("Disconnection from the character server with error");
-
-                        let socket_address = self.saved_login_server_address.unwrap();
-                        self.networking_system.connect_to_login_server(
-                            self.saved_packet_version,
-                            socket_address,
-                            &self.saved_username,
-                            &self.saved_password,
-                        );
-                    }
-                }
-                NetworkEvent::CharacterServerConnected { normal_slot_count } => {
-                    self.client_state
-                        .follow_mut(client_state().character_slots())
-                        .set_slot_count(normal_slot_count);
-
-                    let _ = self.networking_system.request_character_list();
-                }
-                NetworkEvent::CharacterServerConnectionFailed { message, .. } => {
-                    self.networking_system.disconnect_from_character_server();
-                    self.interface.open_window(ErrorWindow::new(message.to_owned()));
-                }
-                NetworkEvent::CharacterServerDisconnected { reason } => {
-                    if reason != DisconnectReason::ClosedByClient {
-                        // TODO: Make this an on-screen popup.
-                        #[cfg(feature = "debug")]
-                        print_debug!("Disconnection from the character server with error");
-
-                        let login_data = self.saved_login_data.as_ref().unwrap();
-                        let server = self.saved_character_server.clone().unwrap();
-                        self.networking_system
-                            .connect_to_character_server(self.saved_packet_version, login_data, server);
-                    } else if !self.networking_system.is_map_server_connected() {
-                        #[cfg(not(feature = "debug"))]
-                        self.interface.close_all_windows();
-
-                        #[cfg(feature = "debug")]
-                        self.interface.close_all_windows_except(DEBUG_WINDOWS);
-
-                        self.interface.open_window(LoginWindow::new(
-                            client_state().login_window(),
-                            client_state().login_settings(),
-                            client_state().client_info(),
-                        ));
-                    }
-                }
-                NetworkEvent::MapServerDisconnected { reason } => {
-                    if reason != DisconnectReason::ClosedByClient {
-                        // TODO: Make this an on-screen popup.
-                        #[cfg(feature = "debug")]
-                        print_debug!("Disconnection from the map server with error");
-                    }
-
-                    let login_data = self.saved_login_data.as_ref().unwrap();
-                    let server = self.saved_character_server.clone().unwrap();
-                    self.networking_system
-                        .connect_to_character_server(self.saved_packet_version, login_data, server);
-
-                    self.map = None;
-
-                    self.particle_holder.clear();
-                    self.effect_holder.clear();
-                    self.point_light_manager.clear();
-                    self.audio_engine.clear_ambient_sound();
-
-                    self.client_state.follow_mut(client_state().entities()).clear();
-                    self.client_state.follow_mut(client_state().dead_entities()).clear();
-
-                    self.audio_engine.play_background_music_track(None);
-
-                    #[cfg(not(feature = "debug"))]
-                    self.interface.close_all_windows();
-
-                    #[cfg(feature = "debug")]
-                    self.interface.close_all_windows_except(DEBUG_WINDOWS);
-
-                    self.async_loader
-                        .request_map_load(DEFAULT_MAP.to_string(), Some(TilePosition::new(0, 0)));
-                }
-                NetworkEvent::InitialStats {
-                    strength_stat_points_cost,
-                    agility_stat_points_cost,
-                    vitality_stat_points_cost,
-                    intelligence_stat_points_cost,
-                    dexterity_stat_points_cost,
-                    luck_stat_points_cost,
-                } => {
-                    if let Some(player) = self.client_state.try_follow_mut(this_player()) {
-                        player.strength_stat_points_cost = strength_stat_points_cost;
-                        player.agility_stat_points_cost = agility_stat_points_cost;
-                        player.vitality_stat_points_cost = vitality_stat_points_cost;
-                        player.intelligence_stat_points_cost = intelligence_stat_points_cost;
-                        player.dexterity_stat_points_cost = dexterity_stat_points_cost;
-                        player.luck_stat_points_cost = luck_stat_points_cost;
-                    }
-                }
-                NetworkEvent::ResurrectPlayer { entity_id } => {
-                    // If the resurrected player is us, close the resurrect window.
-                    if self
-                        .client_state
-                        .try_follow(this_entity())
-                        .is_some_and(|player| player.get_entity_id() == entity_id)
-                    {
-                        self.interface.close_window_with_class(WindowClass::Respawn);
-                    }
-                }
-                NetworkEvent::PlayerStandUp { entity_id } => {
-                    if let Some(entity) = self
-                        .client_state
-                        .follow_mut(client_state().entities())
-                        .iter_mut()
-                        .find(|entity| entity.get_entity_id() == entity_id)
-                    {
-                        entity.set_idle(client_tick);
-                    }
-                }
-                NetworkEvent::AccountId { .. } => {}
-                NetworkEvent::CharacterList { characters } => {
-                    self.audio_engine.play_sound_effect(self.main_menu_click_sound_effect);
-
-                    self.client_state
-                        .follow_mut(client_state().character_slots())
-                        .set_characters(characters);
-
-                    if !self.interface.is_window_with_class_open(WindowClass::CharacterSelection) {
-                        // TODO: this will do one unnecessary restore_focus. check
-                        // if that will be problematic
-
-                        #[cfg(not(feature = "debug"))]
-                        self.interface.close_all_windows();
-
-                        #[cfg(feature = "debug")]
-                        self.interface.close_all_windows_except(DEBUG_WINDOWS);
-
-                        self.interface.open_window(CharacterSelectionWindow::new(
-                            client_state().character_slots(),
-                            client_state().switch_request(),
-                        ));
-                    }
-                }
-                NetworkEvent::CharacterSelectionFailed { message, .. } => self.interface.open_window(ErrorWindow::new(message.to_owned())),
-                NetworkEvent::CharacterDeleted => {
-                    if let Some(character_id) = self.client_state.follow_mut(client_state().currently_deleting()).take() {
-                        self.client_state
-                            .follow_mut(client_state().character_slots())
-                            .remove_with_id(character_id);
-                    }
-                }
-                NetworkEvent::CharacterDeletionFailed { message, .. } => {
-                    *self.client_state.follow_mut(client_state().currently_deleting()) = None;
-                    self.interface.open_window(ErrorWindow::new(message.to_owned()))
-                }
-                NetworkEvent::CharacterSelected { login_data, .. } => {
-                    self.audio_engine.play_sound_effect(self.main_menu_click_sound_effect);
-
-                    let saved_login_data = self.saved_login_data.as_ref().unwrap();
-                    self.networking_system.disconnect_from_character_server();
-                    self.networking_system
-                        .connect_to_map_server(self.saved_packet_version, saved_login_data, login_data);
-                    // Ask for the client tick right away, so that the player isn't de-synced when
-                    // they spawn on the map.
-                    let _ = self.networking_system.request_client_tick();
-
-                    let character_information = self
-                        .client_state
-                        .follow(client_state().character_slots())
-                        .with_id(login_data.character_id)
-                        .cloned()
-                        .unwrap();
-
-                    let mut player = Entity::Player(Player::new(saved_login_data.account_id, &character_information, client_tick));
-
-                    *self.client_state.follow_mut(client_state().player_name()) = character_information.name;
-
-                    let entity_id = player.get_entity_id();
-                    let entity_type = player.get_entity_type();
-                    let entity_part_files = player.get_entity_part_files(&self.library);
-
-                    if let Some(animation_data) = self
-                        .async_loader
-                        .request_animation_data_load(entity_id, entity_type, entity_part_files)
-                    {
-                        player.set_animation_data(animation_data);
-                    }
-
-                    self.client_state.follow_mut(client_state().entities()).push(player);
-
-                    self.interface.close_window_with_class(WindowClass::CharacterSelection);
-                    self.interface.open_window(CharacterOverviewWindow::new(
-                        client_state().player_name(),
-                        // TODO: Check that manually asserting is fine. Technically this window should only
-                        // be open while the player is selected.
-                        this_player().manually_asserted().base_level(),
-                        // TODO: Check that manually asserting is fine. Technically this window should only
-                        // be open while the player is selected.
-                        this_player().manually_asserted().job_level(),
-                    ));
-                    self.interface
-                        .open_window(ChatWindow::new(client_state().chat_window(), client_state().chat_messages()));
-                    self.interface.open_window(HotbarWindow::new(client_state().hotbar().skills()));
-
-                    // Put the dialog system in a well-defined state.
-                    self.client_state.follow_mut(client_state().dialog_window()).end();
-
-                    self.map = None;
-
-                    self.particle_holder.clear();
-                    self.effect_holder.clear();
-                    self.point_light_manager.clear();
-                    self.audio_engine.clear_ambient_sound();
-                }
-                NetworkEvent::CharacterCreated { character_information } => {
-                    self.client_state
-                        .follow_mut(client_state().character_slots())
-                        .add_character(character_information);
-
-                    self.interface.close_window_with_class(WindowClass::CharacterCreation);
-                }
-                NetworkEvent::CharacterCreationFailed { message, .. } => {
-                    self.interface.open_window(ErrorWindow::new(message.to_owned()));
-                }
-                NetworkEvent::CharacterSlotSwitched => {
-                    *self.client_state.follow_mut(client_state().switch_request()) = None;
-                }
-                NetworkEvent::CharacterSlotSwitchFailed => {
-                    self.interface
-                        .open_window(ErrorWindow::new("Failed to switch character slots".to_owned()));
-                }
-                NetworkEvent::AddEntity { entity_data } => {
-                    if let Some(map) = &self.map
-                        && let Some(npc) = Npc::new(map, &mut self.path_finder, entity_data, client_tick)
-                    {
-                        let mut npc = Entity::Npc(npc);
-
-                        let entity_id = npc.get_entity_id();
-                        let entity_type = npc.get_entity_type();
-                        let entity_part_files = npc.get_entity_part_files(&self.library);
-
-                        let entities = self.client_state.follow_mut(client_state().entities());
-
-                        // Check if this entity was fading out and capture its current alpha value
-                        // so we can smoothly transition to fading in from the same alpha.
-                        let old_entity_alpha = entities
-                            .iter()
-                            .find(|entity| entity.get_entity_id() == entity_id)
-                            .and_then(|entity| match entity.get_fade_state() {
-                                FadeState::FadingOut { .. } => Some(entity.get_fade_state().calculate_alpha(client_tick)),
-                                _ => None,
-                            });
-
-                        // Sometimes (like after a job change) the server will tell the client
-                        // that a new entity appeared, even though it was already on screen. So
-                        // to prevent the entity existing twice, we remove the old one.
-                        entities.retain(|entity| entity.get_entity_id() != entity_id);
-
-                        // If the entity was fading out, start fading in from its current alpha value.
-                        if let Some(alpha) = old_entity_alpha {
-                            npc.set_fade_state(FadeState::from_alpha(alpha, FadeDirection::In, client_tick));
-                        }
-
-                        if let Some(animation_data) =
-                            self.async_loader
-                                .request_animation_data_load(entity_id, entity_type, entity_part_files)
-                        {
-                            npc.set_animation_data(animation_data);
-                        }
-
-                        #[cfg(feature = "debug")]
-                        npc.generate_pathing_mesh(&self.device, &self.queue, self.graphics_engine.bindless_support(), map);
-
-                        entities.push(npc);
-                    }
-                }
-                NetworkEvent::RemoveEntity { entity_id, reason } => {
-                    // If the motive is dead, you need to set the player to dead.
-                    if reason == DisappearanceReason::Died {
-                        if let Some(entity) = self
-                            .client_state
-                            .follow_mut(client_state().entities())
-                            .iter_mut()
-                            .find(|entity| entity.get_entity_id() == entity_id)
-                        {
-                            let entity_type = entity.get_entity_type();
-
-                            if entity_type == EntityType::Monster {
-                                let mut entity = entity.clone();
-                                entity.set_dead(client_tick);
-                                entity.stop_movement();
-
-                                // Remove the entity from the list of alive entities.
-                                self.client_state
-                                    .follow_mut(client_state().entities())
-                                    .retain(|entity| entity.get_entity_id() != entity_id);
-
-                                // Add the entity to the list of dead entities.
-                                self.client_state.follow_mut(client_state().dead_entities()).push(entity);
-                            } else if entity_type == EntityType::Player {
-                                entity.set_dead(client_tick);
-
-                                // If the player is us, we need to open the respawn window.
-                                if entity_id == self.client_state.follow(client_state().entities())[0].get_entity_id() {
-                                    self.interface.open_window(RespawnWindow);
-                                }
-                            }
-                        }
-                    } else {
-                        // For non-death disappearances, start fading out the entity.
-                        if let Some(entity) = self
-                            .client_state
-                            .follow_mut(client_state().entities())
-                            .iter_mut()
-                            .find(|entity| entity.get_entity_id() == entity_id)
-                        {
-                            // Preserve alpha when transitioning from any state to fading out.
-                            let current_alpha = entity.get_fade_state().calculate_alpha(client_tick);
-                            entity.set_fade_state(FadeState::from_alpha(current_alpha, FadeDirection::Out, client_tick));
-                        }
-                    }
-
-                    // If the entity that was removed had an attack buffered we remove the entity
-                    // from the buffer.
-                    let buffered_attack_entity = self.client_state.follow_mut(client_state().buffered_attack_entity());
-                    if buffered_attack_entity.is_some_and(|buffered_entity_id| buffered_entity_id == entity_id) {
-                        *buffered_attack_entity = None;
-                    }
-                }
-                NetworkEvent::EntityMove {
-                    entity_id,
-                    origin,
-                    destination,
-                    starting_timestamp,
-                } => {
-                    let entities = self.client_state.follow_mut(client_state().entities());
-                    let entity = entities.iter_mut().find(|entity| entity.get_entity_id() == entity_id);
-
-                    if let Some(entity) = entity
-                        && let Some(map) = &self.map
-                    {
-                        entity.move_from_to(
-                            map,
-                            &mut self.path_finder,
-                            origin.tile_position(),
-                            destination.tile_position(),
-                            starting_timestamp,
-                        );
-                        #[cfg(feature = "debug")]
-                        entity.generate_pathing_mesh(&self.device, &self.queue, self.graphics_engine.bindless_support(), map);
-                    }
-                }
-                NetworkEvent::PlayerMove {
-                    origin,
-                    destination,
-                    starting_timestamp,
-                } => {
-                    if let Some(map) = &self.map
-                        && let Some(player) = self.client_state.try_follow_mut(this_entity())
-                    {
-                        player.move_from_to(
-                            map,
-                            &mut self.path_finder,
-                            origin.tile_position(),
-                            destination.tile_position(),
-                            starting_timestamp,
-                        );
-                        #[cfg(feature = "debug")]
-                        player.generate_pathing_mesh(&self.device, &self.queue, self.graphics_engine.bindless_support(), map);
-                    }
-                }
-                NetworkEvent::ChangeMap { map_name, position } => {
-                    self.map = None;
-                    self.particle_holder.clear();
-                    self.effect_holder.clear();
-                    self.point_light_manager.clear();
-                    self.audio_engine.clear_ambient_sound();
-
-                    // Only the player must stay alive between map changes.
-                    self.client_state.follow_mut(client_state().entities()).truncate(1);
-                    self.client_state.follow_mut(client_state().dead_entities()).clear();
-
-                    // Close any remaining dialogs.
-                    self.interface.close_window_with_class(WindowClass::Dialog);
-
-                    self.async_loader.request_map_load(map_name, Some(position));
-                }
-                NetworkEvent::UpdateClientTick { client_tick, received_at } => {
-                    self.game_timer.set_client_tick(client_tick, received_at);
-                }
-                NetworkEvent::ChatMessage { text, color } => {
-                    self.client_state
-                        .follow_mut(client_state().chat_messages())
-                        .push(ChatMessage::new(text, color));
-                }
-                NetworkEvent::UpdateEntityDetails { entity_id, name } => {
-                    let entity = self
-                        .client_state
-                        .follow_mut(client_state().entities())
-                        .iter_mut()
-                        .find(|entity| entity.get_entity_id() == entity_id);
-
-                    if let Some(entity) = entity {
-                        entity.set_details(name);
-                    }
-                }
-                NetworkEvent::DamageEffect {
-                    source_entity_id,
-                    destination_entity_id,
-                    damage_amount,
-                    attack_duration,
-                    is_critical,
-                } => {
-                    let target_position = self
-                        .client_state
-                        .follow(client_state().entities())
-                        .iter()
-                        .find(|entity| entity.get_entity_id() == destination_entity_id)
-                        .map(|entity| entity.get_tile_position());
-
-                    // Auto attack logic.
-                    if self
-                        .client_state
-                        .try_follow(this_entity())
-                        .is_some_and(|player| player.get_entity_id() == source_entity_id)
-                    {
-                        let auto_attack = *self.client_state.follow(client_state().game_settings().auto_attack());
-                        let buffered_attack_entity = self.client_state.follow_mut(client_state().buffered_attack_entity());
-
-                        if let Some(entity_id) = buffered_attack_entity.take() {
-                            let _ = self.networking_system.player_attack(entity_id);
-
-                            if auto_attack {
-                                *buffered_attack_entity = Some(entity_id);
-                            }
-                        }
-                    }
-
-                    if let Some(entity) = self
-                        .client_state
-                        .follow_mut(client_state().entities())
-                        .iter_mut()
-                        .find(|entity| entity.get_entity_id() == source_entity_id)
-                    // TODO: Maybe also or_else this_entity?
-                    {
-                        if let Some(target_position) = target_position {
-                            entity.rotate_towards(target_position);
-                        }
-
-                        entity.set_attack(attack_duration, is_critical, client_tick);
-                    }
-
-                    if let Some(entity) = self
-                        .client_state
-                        .follow(client_state().entities())
-                        .iter()
-                        .find(|entity| entity.get_entity_id() == destination_entity_id)
-                        .or_else(|| self.client_state.try_follow(this_entity()))
-                    {
-                        let particle: Box<dyn Particle + Send + Sync> = match damage_amount {
-                            Some(amount) => Box::new(DamageNumber::new(entity.get_position(), amount.to_string(), is_critical)),
-                            None => Box::new(Miss::new(entity.get_position())),
-                        };
-
-                        self.particle_holder.spawn_particle(particle);
-                    }
-                }
-                NetworkEvent::HealEffect { entity_id, heal_amount } => {
-                    if let Some(entity) = self
-                        .client_state
-                        .follow(client_state().entities())
-                        .iter()
-                        .find(|entity| entity.get_entity_id() == entity_id)
-                        .or_else(|| self.client_state.try_follow(this_entity()))
-                    {
-                        self.particle_holder
-                            .spawn_particle(Box::new(HealNumber::new(entity.get_position(), heal_amount.to_string())));
-                    }
-                }
-                NetworkEvent::UpdateEntityHealth {
-                    entity_id,
-                    health_points,
-                    maximum_health_points,
-                } => {
-                    let entity = self
-                        .client_state
-                        .follow_mut(client_state().entities())
-                        .iter_mut()
-                        .find(|entity| entity.get_entity_id() == entity_id);
-
-                    if let Some(entity) = entity {
-                        entity.update_health(health_points, maximum_health_points);
-                    }
-                }
-                NetworkEvent::UpdateStat { stat_type } => {
-                    if let Some(player) = self.client_state.try_follow_mut(this_player()) {
-                        player.update_stat(stat_type);
-                    }
-                }
-                NetworkEvent::OpenDialog { text, npc_id } => {
-                    self.client_state
-                        .follow_mut(client_state().dialog_window())
-                        .initialize(npc_id)
-                        .add_text(text);
-
-                    self.interface.open_window(DialogWindow::new(client_state().dialog_window()));
-                }
-                NetworkEvent::AddNextButton { npc_id } => {
-                    self.client_state
-                        .follow_mut(client_state().dialog_window())
-                        // An NPCs could start the dialog with this packet so we want to make sure it's initialized.
-                        .initialize(npc_id)
-                        .add_next_button();
-
-                    self.interface.open_window(DialogWindow::new(client_state().dialog_window()));
-                }
-                NetworkEvent::AddCloseButton { npc_id } => {
-                    // Some NPCs send the `CloseButtonPacket` after the dialog
-                    // has been closed. We want to filter these out because otherwise we get a
-                    // close button at the start of the next dialog.
-                    if self.interface.is_window_with_class_open(WindowClass::Dialog) {
-                        self.client_state
-                            .follow_mut(client_state().dialog_window())
-                            // Technically this call is redundant since the window is already open
-                            // but we keep it for consistency.
-                            .initialize(npc_id)
-                            .add_close_button();
-                    }
-                }
-                NetworkEvent::AddChoiceButtons { choices, npc_id } => {
-                    self.client_state
-                        .follow_mut(client_state().dialog_window())
-                        // Some NPCs start the dialog with this packet so we need to make sure it's initialized.
-                        .initialize(npc_id)
-                        .add_choice_buttons(choices);
-
-                    self.interface.open_window(DialogWindow::new(client_state().dialog_window()));
-                }
-                NetworkEvent::AddQuestEffect { quest_effect } => {
-                    if let Some(map) = &self.map {
-                        self.particle_holder.add_quest_icon(&self.texture_loader, map, quest_effect)
-                    }
-                }
-                NetworkEvent::RemoveQuestEffect { entity_id } => self.particle_holder.remove_quest_icon(entity_id),
-                NetworkEvent::SetInventory { items } => {
-                    self.client_state
-                        .follow_mut(client_state().inventory())
-                        .fill(&self.async_loader, &self.library, items);
-                }
-                NetworkEvent::IventoryItemAdded { item } => {
-                    self.client_state
-                        .follow_mut(client_state().inventory())
-                        .add_item(&self.async_loader, &self.library, item);
-
-                    // TODO: Update the selling items. If you pick up an item
-                    // that you already have the sell window
-                    // should allow you to sell the new
-                    // amount of items.
-                }
-                NetworkEvent::InventoryItemRemoved { index, amount, .. } => {
-                    self.client_state.follow_mut(client_state().inventory()).remove_item(index, amount);
-                }
-                NetworkEvent::SkillTree { skill_information } => {
-                    self.client_state.follow_mut(client_state().skill_tree()).fill(
-                        &self.sprite_loader,
-                        &self.action_loader,
-                        skill_information,
-                        client_tick,
-                    );
-                }
-                NetworkEvent::UpdateEquippedPosition { index, equipped_position } => {
-                    self.client_state
-                        .follow_mut(client_state().inventory())
-                        .update_equipped_position(index, equipped_position);
-                }
-                NetworkEvent::ChangeJob { account_id, job_id } => {
-                    let entity = self
-                        .client_state
-                        .follow_mut(client_state().entities())
-                        .iter_mut()
-                        .find(|entity| entity.get_entity_id().0 == account_id.0)
-                        .unwrap();
-
-                    // FIX: A job change does not automatically send packets for the
-                    // inventory and for unequipping items. We should probably manually
-                    // request a full list of items and the hotbar.
-
-                    entity.set_job(job_id as usize);
-
-                    if let Some(animation_data) = self.async_loader.request_animation_data_load(
-                        entity.get_entity_id(),
-                        entity.get_entity_type(),
-                        entity.get_entity_part_files(&self.library),
-                    ) {
-                        entity.set_animation_data(animation_data);
-                    }
-                }
-                NetworkEvent::ChangeHair { account_id, hair_id } => {
-                    let entity = self
-                        .client_state
-                        .follow_mut(client_state().entities())
-                        .iter_mut()
-                        .find(|entity| entity.get_entity_id().0 == account_id.0)
-                        .unwrap();
-
-                    entity.set_hair(hair_id as usize);
-
-                    if let Some(animation_data) = self.async_loader.request_animation_data_load(
-                        entity.get_entity_id(),
-                        entity.get_entity_type(),
-                        entity.get_entity_part_files(&self.library),
-                    ) {
-                        entity.set_animation_data(animation_data);
-                    }
-                }
-                NetworkEvent::LoggedOut => {
-                    self.networking_system.disconnect_from_map_server();
-                }
-                NetworkEvent::FriendRequest { requestee } => {
-                    self.interface.open_window(FriendRequestWindow::new(requestee));
-                }
-                NetworkEvent::FriendRemoved { account_id, character_id } => {
-                    self.client_state
-                        .follow_mut(client_state().friend_list())
-                        .retain(|friend| !(friend.account_id == account_id && friend.character_id == character_id));
-                }
-                NetworkEvent::FriendAdded { friend } => {
-                    self.client_state.follow_mut(client_state().friend_list()).push(friend);
-                }
-                NetworkEvent::VisualEffect { effect_path, entity_id } => {
-                    let effect = self.effect_loader.get_or_load(effect_path, &self.texture_loader).unwrap();
-                    let frame_timer = effect.new_frame_timer();
-
-                    self.effect_holder.add_effect(Box::new(EffectWithLight::new(
-                        effect,
-                        frame_timer,
-                        EffectCenter::Entity(entity_id, Point3::new(0.0, 0.0, 0.0)),
-                        Vector3::new(0.0, 9.0, 0.0),
-                        // FIX: The point light ID needs to be unique.
-                        // The point light manager uses the ID to decide which point light
-                        // renders with a shadow. Having duplicate IDs might cause some
-                        // visual artifacts, such as flickering, as the point lights switch
-                        // between shadows and no shadows.
-                        PointLightId::new(entity_id.0),
-                        Vector3::new(0.0, 12.0, 0.0),
-                        Color::WHITE,
-                        50.0,
-                        false,
-                    )));
-                }
-                NetworkEvent::AddSkillUnit {
-                    entity_id,
-                    unit_id,
-                    position,
-                } => {
-                    let Some(map) = &self.map else {
-                        continue;
-                    };
-
-                    match unit_id {
-                        UnitId::Firewall => {
-                            let Some(position) = map.get_world_position(position) else {
-                                #[cfg(feature = "debug")]
-                                print_debug!("[{}] entity with id {:?} is out of map bounds", "error".red(), entity_id);
-                                continue;
-                            };
-
-                            let effect = self.effect_loader.get_or_load("firewall.str", &self.texture_loader).unwrap();
-                            let frame_timer = effect.new_frame_timer();
-
-                            self.effect_holder.add_unit(
-                                Box::new(EffectWithLight::new(
-                                    effect,
-                                    frame_timer,
-                                    EffectCenter::Position(position),
-                                    Vector3::new(0.0, 0.0, 0.0),
-                                    PointLightId::new(unit_id as u32),
-                                    Vector3::new(0.0, 6.0, 0.0),
-                                    Color::rgb_u8(255, 30, 0),
-                                    60.0,
-                                    true,
-                                )),
-                                entity_id,
-                            );
-                        }
-                        UnitId::Pneuma => {
-                            let Some(position) = map.get_world_position(position) else {
-                                #[cfg(feature = "debug")]
-                                print_debug!("[{}] entity with id {:?} is out of map bounds", "error".red(), entity_id);
-                                continue;
-                            };
-
-                            let effect = self.effect_loader.get_or_load("pneuma1.str", &self.texture_loader).unwrap();
-                            let frame_timer = effect.new_frame_timer();
-
-                            self.effect_holder.add_unit(
-                                Box::new(EffectWithLight::new(
-                                    effect,
-                                    frame_timer,
-                                    EffectCenter::Position(position),
-                                    Vector3::new(0.0, 0.0, 0.0),
-                                    PointLightId::new(unit_id as u32),
-                                    Vector3::new(0.0, 6.0, 0.0),
-                                    Color::rgb_u8(83, 220, 108).into(),
-                                    40.0,
-                                    false,
-                                )),
-                                entity_id,
-                            );
-                        }
-                        _ => {}
-                    }
-                }
-                NetworkEvent::RemoveSkillUnit { entity_id } => {
-                    self.effect_holder.remove_unit(entity_id);
-                }
-                NetworkEvent::SetFriendList { friend_list } => {
-                    *self.client_state.follow_mut(client_state().friend_list()) = friend_list;
-                }
-                NetworkEvent::SetHotkeyData { tab, hotkeys } => {
-                    // FIX: Since we only have one hotbar at the moment, we ignore
-                    // everything but 0.
-                    if tab.0 != 0 {
-                        continue;
-                    }
-
-                    for (index, hotkey) in hotkeys.into_iter().take(10).enumerate() {
-                        match hotkey {
-                            HotkeyState::Bound(hotkey) => {
-                                let Some(mut skill) = self
-                                    .client_state
-                                    .follow(client_state().skill_tree())
-                                    .find_skill(SkillId(hotkey.skill_id as u16))
-                                else {
-                                    self.client_state
-                                        .follow_mut(client_state().hotbar())
-                                        .clear_slot(&mut self.networking_system, HotbarSlot(index as u16));
-                                    continue;
-                                };
-
-                                skill.skill_level = hotkey.quantity_or_skill_level;
-                                self.client_state
-                                    .follow_mut(client_state().hotbar())
-                                    .set_slot(HotbarSlot(index as u16), skill);
-                            }
-                            HotkeyState::Unbound => self
-                                .client_state
-                                .follow_mut(client_state().hotbar())
-                                .unset_slot(HotbarSlot(index as u16)),
-                        }
-                    }
-                }
-                NetworkEvent::OpenShop { items } => {
-                    // Close the dialog. Some NPCs don't use the `BuyOrSellPacket` and instead use
-                    // the regular `DialogMenuPacket`. When opening the shop that dialog should be
-                    // closed.
-                    self.client_state.follow_mut(client_state().dialog_window()).end();
-                    self.interface.close_window_with_class(WindowClass::Dialog);
-
-                    *self.client_state.follow_mut(client_state().shop_items()) = items
-                        .into_iter()
-                        .map(|item| self.library.load_shop_item_metadata(&self.async_loader, item))
-                        .collect();
-
-                    self.interface
-                        .open_window(BuyWindow::new(client_state().shop_items(), client_state().buy_cart()));
-                    self.interface.open_window(BuyCartWindow::new(client_state().buy_cart()));
-                }
-                NetworkEvent::AskBuyOrSell { shop_id } => {
-                    self.interface.open_window(BuyOrSellWindow::new(shop_id));
-                }
-                NetworkEvent::BuyingCompleted { result } => match result {
-                    BuyShopItemsResult::Success => {
-                        let _ = self.networking_system.close_shop();
-
-                        // Clear the cart.
-                        self.client_state.follow_mut(client_state().buy_cart()).clear();
-
-                        self.interface.close_window_with_class(WindowClass::Buy);
-                        self.interface.close_window_with_class(WindowClass::BuyCart);
-                    }
-                    BuyShopItemsResult::Error => {
-                        self.client_state
-                            .follow_mut(client_state().chat_messages())
-                            .push(ChatMessage::new("Failed to buy items".to_owned(), MessageColor::Error));
-                    }
-                },
-                NetworkEvent::SellItemList { items } => {
-                    // Close the dialog. Some NPCs don't use the `BuyOrSellPacket` and instead use
-                    // the regular `DialogMenuPacket`. When opening the shop that dialog should be
-                    // closed.
-                    self.client_state.follow_mut(client_state().dialog_window()).end();
-                    self.interface.close_window_with_class(WindowClass::Dialog);
-
-                    let inventory_items = self.client_state.follow(client_state().inventory().items());
-                    let sell_items = items
-                        .into_iter()
-                        .map(|item| {
-                            let inventory_item = inventory_items
-                                .iter()
-                                .find(|inventory_item| inventory_item.index == item.inventory_index)
-                                .expect("item not in inventory");
-
-                            let name = inventory_item.metadata.name.clone();
-                            let texture = inventory_item.metadata.texture.clone();
-                            let quantity = match &inventory_item.details {
-                                korangar_networking::InventoryItemDetails::Regular { amount, .. } => *amount,
-                                korangar_networking::InventoryItemDetails::Equippable { .. } => 1,
-                            };
-
-                            SellItem {
-                                metadata: (ResourceMetadata { name, texture }, quantity),
-                                inventory_index: item.inventory_index,
-                                price: item.price,
-                                overcharge_price: item.overcharge_price,
-                            }
-                        })
-                        .collect();
-
-                    *self.client_state.follow_mut(client_state().sell_items()) = sell_items;
-
-                    self.interface
-                        .open_window(SellWindow::new(client_state().sell_items(), client_state().sell_cart()));
-                    self.interface.open_window(SellCartWindow::new(client_state().sell_cart()));
-                }
-                NetworkEvent::SellingCompleted { result } => match result {
-                    SellItemsResult::Success => {
-                        // Clear the cart.
-                        self.client_state.follow_mut(client_state().buy_cart()).clear();
-
-                        self.interface.close_window_with_class(WindowClass::Sell);
-                        self.interface.close_window_with_class(WindowClass::SellCart);
-                    }
-                    SellItemsResult::Error => {
-                        self.client_state
-                            .follow_mut(client_state().chat_messages())
-                            .push(ChatMessage::new("Failed to sell items".to_owned(), MessageColor::Error));
-                    }
-                },
-                NetworkEvent::AttackFailed {
-                    target_entity_id,
-                    target_position,
-                    player_position,
-                    attack_range,
-                } => {
-                    if let Some(map) = &self.map
-                        && self.client_state.try_follow_mut(this_entity()).is_some()
-                        // Make sure that the entity is on screen.
-                        && self
-                            .client_state
-                            .follow(client_state().entities())
-                            .iter()
-                            .any(|entity| entity.get_entity_id() == target_entity_id)
-                        && let Some(path) =
-                            self.path_finder
-                                .find_walkable_path_in_range(&**map, player_position, target_position, attack_range)
-                    {
-                        let nearest_tile = path.last().unwrap();
-
-                        let _ = self.networking_system.player_move(WorldPosition {
-                            x: nearest_tile.x,
-                            y: nearest_tile.y,
-                            direction: Direction::North,
-                        });
-
-                        *self.client_state.follow_mut(client_state().buffered_attack_entity()) = Some(target_entity_id);
-                    }
-                }
-            }
-        }
+        self.process_gameplay_events(client_tick);
 
         #[cfg(feature = "debug")]
-        network_event_measurement.stop();
+        gameplay_event_measurement.stop();
 
         #[cfg(feature = "debug")]
         let input_event_measurement = Profiler::start_measurement("process user events");
 
-        self.interface.process_events(&mut self.input_event_buffer);
-        let interface_has_focus = self.interface.has_focus();
-
-        if self.interface.get_mouse_mode().is_rotating_camera() {
-            // TODO: Does this really need to be a InputEvent?
-            let rotation = input_report.mouse_delta.width;
-            self.input_event_buffer.push(InputEvent::RotateCamera { rotation });
-        }
-
-        if !interface_has_focus {
-            self.input_system.handle_keyboard_input(
-                &mut self.input_event_buffer,
-                #[cfg(feature = "debug")]
-                self.interface.get_mouse_mode().is_default(),
-                #[cfg(feature = "debug")]
-                *self.client_state.follow(client_state().render_options().use_debug_camera()),
-            );
-        }
-
-        for event in self.input_event_buffer.drain(..) {
-            match event {
-                InputEvent::LogIn {
-                    service_id,
-                    username,
-                    password,
-                } => {
-                    let service = self
-                        .client_state
-                        .follow(client_state().client_info().services())
-                        .iter()
-                        .find(|service| service.service_id() == service_id)
-                        .unwrap();
-                    let address = format!("{}:{}", service.address, service.port);
-                    let socket_address = address
-                        .to_socket_addrs()
-                        .expect("Failed to resolve IP")
-                        .next()
-                        .expect("ill formatted service IP");
-
-                    let packet_version = match service.packet_version {
-                        Some(packet_version) => match packet_version {
-                            PacketVersion::_20220406 => SupportedPacketVersion::_20220406,
-                            PacketVersion::Unsupported(packet_version) => {
-                                self.interface.open_window(ErrorWindow::new(format!(
-                                    "Selected server has an unsupported package version: {packet_version}"
-                                )));
-                                continue;
-                            }
-                        },
-                        None => FALLBACK_PACKET_VERSION,
-                    };
-
-                    self.saved_login_server_address = Some(socket_address);
-                    self.saved_username = username.clone();
-                    self.saved_password = password.clone();
-                    self.saved_packet_version = packet_version;
-
-                    self.networking_system
-                        .connect_to_login_server(packet_version, socket_address, username, password);
-                }
-                InputEvent::SelectServer {
-                    character_server_information,
-                } => {
-                    self.saved_character_server = Some(character_server_information.clone());
-
-                    self.networking_system.disconnect_from_login_server();
-
-                    // Korangar should never attempt to connect to the character
-                    // server before it logged in to the login server, so it's fine to
-                    // unwrap here.
-                    let login_data = self.saved_login_data.as_ref().unwrap();
-                    self.networking_system
-                        .connect_to_character_server(self.saved_packet_version, login_data, character_server_information);
-                }
-                InputEvent::Respawn => {
-                    let _ = self.networking_system.respawn();
-                    self.interface.close_window_with_class(WindowClass::Respawn);
-                }
-                InputEvent::LogOut => {
-                    let _ = self.networking_system.log_out();
-                }
-                InputEvent::LogOutCharacter => {
-                    self.networking_system.disconnect_from_character_server();
-                }
-                InputEvent::Exit => event_loop.exit(),
-                InputEvent::ZoomCamera { zoom_factor } => self.player_camera.soft_zoom(zoom_factor),
-                InputEvent::RotateCamera { rotation } => self.player_camera.soft_rotate(rotation),
-                InputEvent::ResetCameraRotation => self.player_camera.reset_rotation(),
-                InputEvent::ToggleMenuWindow => {
-                    if self.client_state.try_follow(this_entity()).is_some() {
-                        match self.interface.is_window_with_class_open(WindowClass::Menu) {
-                            true => self.interface.close_window_with_class(WindowClass::Menu),
-                            false => self.interface.open_window(MenuWindow),
-                        }
-                    }
-                }
-                InputEvent::ToggleInventoryWindow => {
-                    if self.client_state.try_follow(this_entity()).is_some() {
-                        match self.interface.is_window_with_class_open(WindowClass::Inventory) {
-                            true => self.interface.close_window_with_class(WindowClass::Inventory),
-                            false => self.interface.open_window(InventoryWindow::new(client_state().inventory().items())),
-                        }
-                    }
-                }
-                InputEvent::ToggleEquipmentWindow => {
-                    if self.client_state.try_follow(this_entity()).is_some() {
-                        match self.interface.is_window_with_class_open(WindowClass::Equipment) {
-                            true => self.interface.close_window_with_class(WindowClass::Equipment),
-                            false => self.interface.open_window(EquipmentWindow::new(client_state().inventory().items())),
-                        }
-                    }
-                }
-                InputEvent::ToggleSkillTreeWindow => {
-                    if self.client_state.try_follow(this_entity()).is_some() {
-                        match self.interface.is_window_with_class_open(WindowClass::SkillTree) {
-                            true => self.interface.close_window_with_class(WindowClass::SkillTree),
-                            false => self
-                                .interface
-                                .open_window(SkillTreeWindow::new(client_state().skill_tree().skills())),
-                        }
-                    }
-                }
-                InputEvent::ToggleStatsWindow => {
-                    if self.client_state.try_follow(this_entity()).is_some() {
-                        match self.interface.is_window_with_class_open(WindowClass::Stats) {
-                            true => self.interface.close_window_with_class(WindowClass::Stats),
-                            false => self.interface.open_window(StatsWindow::new(this_player().manually_asserted())),
-                        }
-                    }
-                }
-                InputEvent::ToggleGameSettingsWindow => match self.interface.is_window_with_class_open(WindowClass::GameSettings) {
-                    true => self.interface.close_window_with_class(WindowClass::GameSettings),
-                    false => self.interface.open_window(GameSettingsWindow::new(client_state().game_settings())),
-                },
-                InputEvent::ToggleInterfaceSettingsWindow => match self.interface.is_window_with_class_open(WindowClass::InterfaceSettings)
-                {
-                    true => self.interface.close_window_with_class(WindowClass::InterfaceSettings),
-                    false => self.interface.open_window(InterfaceSettingsWindow::new(
-                        client_state().interface_settings(),
-                        client_state().interface_settings_capabilities(),
-                    )),
-                },
-                InputEvent::ToggleGraphicsSettingsWindow => match self.interface.is_window_with_class_open(WindowClass::GraphicsSettings) {
-                    true => self.interface.close_window_with_class(WindowClass::GraphicsSettings),
-                    false => self.interface.open_window(GraphicsSettingsWindow::new(
-                        client_state().graphics_settings(),
-                        client_state().graphics_settings_capabilities(),
-                    )),
-                },
-                InputEvent::ToggleAudioSettingsWindow => match self.interface.is_window_with_class_open(WindowClass::AudioSettings) {
-                    true => self.interface.close_window_with_class(WindowClass::AudioSettings),
-                    false => self
-                        .interface
-                        .open_window(AudioSettingsWindow::new(client_state().audio_settings())),
-                },
-                InputEvent::ToggleFriendListWindow => {
-                    if self.client_state.try_follow(this_entity()).is_some() {
-                        match self.interface.is_window_with_class_open(WindowClass::FriendList) {
-                            true => self.interface.close_window_with_class(WindowClass::FriendList),
-                            false => self.interface.open_window(FriendListWindow::new(
-                                client_state().friend_list_window(),
-                                client_state().friend_list(),
-                            )),
-                        }
-                    }
-                }
-                InputEvent::CloseTopWindow => self.interface.close_top_window(&self.client_state),
-                InputEvent::ToggleShowInterface => self.show_interface = !self.show_interface,
-                InputEvent::SelectCharacter { slot } => {
-                    let _ = self.networking_system.select_character(slot);
-                }
-                InputEvent::OpenCharacterCreationWindow { slot } => {
-                    // Clear the name before opening the window.
-                    self.client_state.follow_mut(client_state().create_character_name()).clear();
-
-                    self.interface
-                        .open_window(CharacterCreationWindow::new(client_state().create_character_name(), slot))
-                }
-                InputEvent::CreateCharacter { slot, name } => {
-                    let _ = self.networking_system.create_character(slot, name);
-                }
-                InputEvent::DeleteCharacter { character_id } => {
-                    if self.client_state.follow(client_state().currently_deleting()).is_none() {
-                        let _ = self.networking_system.delete_character(character_id);
-                        *self.client_state.follow_mut(client_state().currently_deleting()) = Some(character_id);
-                    }
-                }
-                InputEvent::SwitchCharacterSlot {
-                    origin_slot,
-                    destination_slot,
-                } => {
-                    let _ = self.networking_system.switch_character_slot(origin_slot, destination_slot);
-                }
-                InputEvent::PlayerMove { destination } => {
-                    if self.client_state.try_follow(this_entity()).is_some() {
-                        let _ = self.networking_system.player_move(WorldPosition {
-                            x: destination.x,
-                            y: destination.y,
-                            direction: Direction::North,
-                        });
-                    }
-
-                    // Unbuffer any buffered attack.
-                    *self.client_state.follow_mut(client_state().buffered_attack_entity()) = None;
-                }
-                InputEvent::PlayerInteract { entity_id } => {
-                    let entity = self
-                        .client_state
-                        .follow_mut(client_state().entities())
-                        .iter_mut()
-                        .find(|entity| entity.get_entity_id() == entity_id);
-
-                    if let Some(entity) = entity {
-                        let _ = match entity.get_entity_type() {
-                            EntityType::Npc => self.networking_system.start_dialog(entity_id),
-                            EntityType::Monster => {
-                                let auto_attack = *self.client_state.follow(client_state().game_settings().auto_attack());
-                                let buffered_attack_entity = self.client_state.follow_mut(client_state().buffered_attack_entity());
-
-                                if auto_attack {
-                                    *buffered_attack_entity = Some(entity_id);
-                                }
-
-                                self.networking_system.player_attack(entity_id)
-                            }
-                            EntityType::Warp => self.networking_system.player_move({
-                                let position = entity.get_tile_position();
-                                WorldPosition {
-                                    x: position.x,
-                                    y: position.y,
-                                    direction: Direction::North,
-                                }
-                            }),
-                            _ => Ok(()),
-                        };
-                    }
-                }
-                #[cfg(feature = "debug")]
-                InputEvent::WarpToMap { map_name, position } => {
-                    let _ = self.networking_system.warp_to_map(map_name, position);
-                }
-                InputEvent::SendMessage { text } => {
-                    // Handle special client commands.
-                    if text.as_str() == "/nc" {
-                        let auto_attack = self.client_state.follow_mut(client_state().game_settings().auto_attack());
-                        *auto_attack = !*auto_attack;
-                        continue;
-                    }
-
-                    let _ = self
-                        .networking_system
-                        .send_chat_message(self.client_state.follow(client_state().player_name()), &text);
-                }
-                InputEvent::NextDialog { npc_id } => {
-                    let _ = self.networking_system.next_dialog(npc_id);
-                }
-                InputEvent::CloseDialog { npc_id } => {
-                    let _ = self.networking_system.close_dialog(npc_id);
-                    self.client_state.follow_mut(client_state().dialog_window()).end();
-                    self.interface.close_window_with_class(WindowClass::Dialog);
-                }
-                InputEvent::ChooseDialogOption { npc_id, option } => {
-                    let _ = self.networking_system.choose_dialog_option(npc_id, option);
-
-                    if option == -1 {
-                        self.interface.close_window_with_class(WindowClass::Dialog);
-                    }
-                }
-                InputEvent::MoveItem { source, destination, item } => match (source, destination) {
-                    (ItemSource::Inventory, ItemSource::Equipment { position }) => {
-                        let _ = self.networking_system.request_item_equip(item.index, position);
-                    }
-                    (ItemSource::Equipment { .. }, ItemSource::Inventory) => {
-                        let _ = self.networking_system.request_item_unequip(item.index);
-                    }
-                    _ => {}
-                },
-                InputEvent::MoveSkill {
-                    source,
-                    destination,
-                    skill,
-                } => match (source, destination) {
-                    (SkillSource::SkillTree, SkillSource::Hotbar { slot }) => {
-                        self.client_state
-                            .follow_mut(client_state().hotbar())
-                            .update_slot(&mut self.networking_system, slot, skill);
-                    }
-                    (SkillSource::Hotbar { slot: source_slot }, SkillSource::Hotbar { slot: destination_slot }) => {
-                        self.client_state.follow_mut(client_state().hotbar()).swap_slot(
-                            &mut self.networking_system,
-                            source_slot,
-                            destination_slot,
-                        );
-                    }
-                    _ => {}
-                },
-                InputEvent::CastSkill { slot } => {
-                    if let Some(skill) = self.client_state.follow(client_state().hotbar()).get_skill_in_slot(slot).as_ref() {
-                        match skill.skill_type {
-                            SkillType::Passive => {}
-                            SkillType::Attack => {
-                                if let PickerTarget::Entity(entity_id) = input_report.mouse_target {
-                                    let _ = self
-                                        .networking_system
-                                        .cast_skill(skill.skill_id, skill.skill_level, EntityId(entity_id));
-                                }
-                            }
-                            SkillType::Ground | SkillType::Trap => {
-                                if let PickerTarget::Tile { x, y } = input_report.mouse_target {
-                                    let _ = self
-                                        .networking_system
-                                        .cast_ground_skill(skill.skill_id, skill.skill_level, TilePosition { x, y });
-                                }
-                            }
-                            SkillType::SelfCast => match skill.skill_id == ROLLING_CUTTER_ID {
-                                true => {
-                                    let _ = self.networking_system.cast_channeling_skill(
-                                        skill.skill_id,
-                                        skill.skill_level,
-                                        self.client_state.follow(this_entity().manually_asserted()).get_entity_id(),
-                                    );
-                                }
-                                false => {
-                                    let _ = self.networking_system.cast_skill(
-                                        skill.skill_id,
-                                        skill.skill_level,
-                                        self.client_state.follow(this_entity().manually_asserted()).get_entity_id(),
-                                    );
-                                }
-                            },
-                            SkillType::Support => {
-                                if let PickerTarget::Entity(entity_id) = input_report.mouse_target {
-                                    let _ = self
-                                        .networking_system
-                                        .cast_skill(skill.skill_id, skill.skill_level, EntityId(entity_id));
-                                } else {
-                                    let _ = self.networking_system.cast_skill(
-                                        skill.skill_id,
-                                        skill.skill_level,
-                                        self.client_state.follow(this_entity().manually_asserted()).get_entity_id(),
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-                InputEvent::StopSkill { slot } => {
-                    if let Some(skill) = self.client_state.follow(client_state().hotbar()).get_skill_in_slot(slot).as_ref()
-                        && skill.skill_id == ROLLING_CUTTER_ID
-                    {
-                        let _ = self.networking_system.stop_channeling_skill(skill.skill_id);
-                    }
-                }
-                InputEvent::AddFriend { character_name } => {
-                    if character_name.len() > 24 {
-                        #[cfg(feature = "debug")]
-                        print_debug!("[{}] friend name {} is too long", "error".red(), character_name.magenta());
-                    } else {
-                        let _ = self.networking_system.add_friend(character_name);
-                    }
-                }
-                InputEvent::RemoveFriend { account_id, character_id } => {
-                    let _ = self.networking_system.remove_friend(account_id, character_id);
-                }
-                InputEvent::RejectFriendRequest { account_id, character_id } => {
-                    let _ = self.networking_system.reject_friend_request(account_id, character_id);
-                    self.interface.close_window_with_class(WindowClass::FriendRequest);
-                }
-                InputEvent::AcceptFriendRequest { account_id, character_id } => {
-                    let _ = self.networking_system.accept_friend_request(account_id, character_id);
-                    self.interface.close_window_with_class(WindowClass::FriendRequest);
-                }
-                InputEvent::BuyItems { items } => {
-                    let _ = self.networking_system.purchase_items(items);
-                }
-                InputEvent::CloseShop => {
-                    let _ = self.networking_system.close_shop();
-
-                    // Clear the carts.
-                    self.client_state.follow_mut(client_state().buy_cart()).clear();
-                    self.client_state.follow_mut(client_state().sell_cart()).clear();
-
-                    self.interface.close_window_with_class(WindowClass::Buy);
-                    self.interface.close_window_with_class(WindowClass::BuyCart);
-                    self.interface.close_window_with_class(WindowClass::Sell);
-                    self.interface.close_window_with_class(WindowClass::SellCart);
-                }
-                InputEvent::BuyOrSell { shop_id, buy_or_sell } => {
-                    let _ = self.networking_system.select_buy_or_sell(shop_id, buy_or_sell);
-                    self.interface.close_window_with_class(WindowClass::BuyOrSell);
-                }
-                InputEvent::SellItems { items } => {
-                    let _ = self.networking_system.sell_items(items);
-                }
-                InputEvent::StatUp { stat_type } => {
-                    let _ = self.networking_system.request_stat_up(stat_type);
-                }
-                #[cfg(feature = "debug")]
-                InputEvent::ReloadLanguage => {
-                    let language = *self.client_state.follow(client_state().interface_settings().language());
-                    *self.client_state.follow_mut(client_state().localization()) =
-                        Localization::load_language(&self.game_file_loader, language);
-                }
-                #[cfg(feature = "debug")]
-                InputEvent::SaveLanguage => {
-                    let language = *self.client_state.follow(client_state().interface_settings().language());
-                    self.client_state.follow(client_state().localization()).save_language(language);
-                }
-                #[cfg(feature = "debug")]
-                InputEvent::OpenMarkerDetails { marker_identifier } => {
-                    if let Some(map) = &self.map {
-                        match marker_identifier {
-                            MarkerIdentifier::Object(key) => {
-                                let inspecting_objects = self.client_state.follow_mut(client_state().inspecting_objects());
-                                let object = map.get_object(key);
-                                let object_path = state::prepare_object_inspection(inspecting_objects, object);
-
-                                self.interface.open_state_window(object_path);
-                            }
-                            MarkerIdentifier::LightSource(key) => {
-                                let inspecting_lights = self.client_state.follow_mut(client_state().inspecting_light_sources());
-                                let light_source = map.get_light_source(key);
-                                let light_source_path = state::prepare_light_source_inspection(inspecting_lights, light_source);
-
-                                self.interface.open_state_window(light_source_path);
-                            }
-                            MarkerIdentifier::SoundSource(index) => {
-                                let inspecting_sounds = self.client_state.follow_mut(client_state().inspecting_sound_sources());
-                                let sound_source = map.get_sound_source(index);
-                                let sound_source_path = state::prepare_sound_source_inspection(inspecting_sounds, sound_source);
-
-                                self.interface.open_state_window(sound_source_path);
-                            }
-                            MarkerIdentifier::EffectSource(index) => {
-                                let inspecting_effects = self.client_state.follow_mut(client_state().inspecting_effect_sources());
-                                let effect_source = map.get_effect_source(index);
-                                let effect_source_path = state::prepare_effect_source_inspection(inspecting_effects, effect_source);
-
-                                self.interface.open_state_window(effect_source_path);
-                            }
-                            MarkerIdentifier::Particle(..) => {
-                                // TODO:
-                            }
-                            MarkerIdentifier::Entity(index) => {
-                                let entity_id = self
-                                    .client_state
-                                    .try_follow(client_state().entities().index(index as usize))
-                                    .expect("entity should exist")
-                                    .get_entity_id();
-
-                                // This can technically still be `None`, violating the API but we handle this
-                                // case in the state window.
-                                let entity_path = client_state().entities().lookup(entity_id).manually_asserted();
-
-                                self.interface.open_state_window(entity_path);
-                            }
-                            MarkerIdentifier::Shadow(..) => {
-                                // TODO:
-                            }
-                        }
-                    }
-                }
-                #[cfg(feature = "debug")]
-                InputEvent::ToggleRenderOptionsWindow => match self.interface.is_window_with_class_open(WindowClass::RenderOptions) {
-                    true => self.interface.close_window_with_class(WindowClass::RenderOptions),
-                    false => self
-                        .interface
-                        .open_window(RenderOptionsWindow::new(client_state().render_options())),
-                },
-                #[cfg(feature = "debug")]
-                InputEvent::OpenMapDataWindow => {
-                    if self.map.is_some() {
-                        let inspecting_maps = self.client_state.follow_mut(client_state().inspecting_maps());
-                        let map_data = self.map.as_ref().unwrap().get_map_data();
-                        let map_data_path = state::prepare_map_inspection(inspecting_maps, map_data);
-
-                        self.interface.open_state_window(map_data_path);
-                    }
-                }
-                #[cfg(feature = "debug")]
-                InputEvent::ToggleClientStateInspectorWindow => {
-                    match self.interface.is_window_with_class_open(WindowClass::ClientStateInspector) {
-                        true => self.interface.close_window_with_class(WindowClass::ClientStateInspector),
-                        false => self.interface.open_state_window_mut(client_state()),
-                    }
-                }
-                #[cfg(feature = "debug")]
-                InputEvent::ToggleMapsWindow => {
-                    if self.map.is_some() {
-                        match self.interface.is_window_with_class_open(WindowClass::Maps) {
-                            true => self.interface.close_window_with_class(WindowClass::Maps),
-                            false => self.interface.open_window(MapsWindow),
-                        }
-                    }
-                }
-                #[cfg(feature = "debug")]
-                InputEvent::ToggleCommandsWindow => {
-                    if self.map.is_some() {
-                        match self.interface.is_window_with_class_open(WindowClass::Commands) {
-                            true => self.interface.close_window_with_class(WindowClass::Commands),
-                            false => self.interface.open_window(CommandsWindow),
-                        }
-                    }
-                }
-                #[cfg(feature = "debug")]
-                InputEvent::ToggleThemeInspectorWindow => match self.interface.is_window_with_class_open(WindowClass::ThemeInspector) {
-                    true => self.interface.close_window_with_class(WindowClass::ThemeInspector),
-                    false => self.interface.open_window(ThemeInspectorWindow::new(
-                        client_state().theme_inspector_window(),
-                        client_state().menu_theme(),
-                        client_state().in_game_theme(),
-                        client_state().world_theme(),
-                    )),
-                },
-                #[cfg(feature = "debug")]
-                InputEvent::ToggleProfilerWindow => match self.interface.is_window_with_class_open(WindowClass::Profiler) {
-                    true => self.interface.close_window_with_class(WindowClass::Profiler),
-                    false => self.interface.open_window(ProfilerWindow::new(client_state().profiler_window())),
-                },
-                #[cfg(feature = "debug")]
-                InputEvent::TogglePacketInspectorWindow => match self.interface.is_window_with_class_open(WindowClass::PacketInspector) {
-                    true => self.interface.close_window_with_class(WindowClass::PacketInspector),
-                    false => self
-                        .interface
-                        .open_window(PacketInspectorWindow::new(client_state().packet_history())),
-                },
-                #[cfg(feature = "debug")]
-                InputEvent::ToggleCacheStatisticsWindow => match self.interface.is_window_with_class_open(WindowClass::CacheStatistics) {
-                    true => self.interface.close_window_with_class(WindowClass::CacheStatistics),
-                    false => self.interface.open_state_window(client_state().cache_statistics()),
-                },
-                #[cfg(feature = "debug")]
-                InputEvent::CameraLookAround { offset } => self.debug_camera.look_around(offset),
-                #[cfg(feature = "debug")]
-                InputEvent::CameraMoveForward => self.debug_camera.move_forward(delta_time as f32),
-                #[cfg(feature = "debug")]
-                InputEvent::CameraMoveBackward => self.debug_camera.move_backward(delta_time as f32),
-                #[cfg(feature = "debug")]
-                InputEvent::CameraMoveLeft => self.debug_camera.move_left(delta_time as f32),
-                #[cfg(feature = "debug")]
-                InputEvent::CameraMoveRight => self.debug_camera.move_right(delta_time as f32),
-                #[cfg(feature = "debug")]
-                InputEvent::CameraMoveUp => self.debug_camera.move_up(delta_time as f32),
-                #[cfg(feature = "debug")]
-                InputEvent::CameraAccelerate => self.debug_camera.accelerate(),
-                #[cfg(feature = "debug")]
-                InputEvent::CameraDecelerate => self.debug_camera.decelerate(),
-                #[cfg(feature = "debug")]
-                InputEvent::InspectFrame { measurement } => self.interface.open_window(FrameInspectorWindow::new(measurement)),
-            }
-        }
+        let interface_has_focus = self.process_user_events(event_loop, delta_time, &input_report);
 
         #[cfg(feature = "debug")]
         input_event_measurement.stop();
@@ -2403,83 +957,14 @@ impl Client {
         #[cfg(feature = "debug")]
         let loads_measurement = Profiler::start_measurement("complete async loads");
 
-        for completed in self.async_loader.take_completed() {
-            match completed {
-                (LoaderId::AnimationData(entity_id), LoadableResource::AnimationData(animation_data)) => {
-                    if let Some(entity) = self
-                        .client_state
-                        .follow_mut(client_state().entities())
-                        .iter_mut()
-                        .find(|entity| entity.get_entity_id() == entity_id)
-                    {
-                        entity.set_animation_data(animation_data);
-                    }
-                }
-                (LoaderId::ItemSprite(item_id), LoadableResource::ItemSprite { texture, location }) => match location {
-                    ItemLocation::Inventory => {
-                        self.client_state
-                            .follow_mut(client_state().inventory())
-                            .update_item_sprite(item_id, texture);
-                    }
-                    ItemLocation::Shop => {
-                        self.client_state
-                            .follow_mut(client_state().shop_items())
-                            .iter_mut()
-                            .filter(|item| item.item_id == item_id)
-                            .for_each(|item| item.metadata.texture = Some(texture.clone()));
-                    }
-                },
-                (LoaderId::Map(..), LoadableResource::Map { map, position }) => {
-                    match self.client_state.try_follow(this_player()).is_none() {
-                        true => {
-                            // Load of main menu map
-                            let map = self.map.insert(map);
-
-                            map.set_ambient_sound_sources(&self.audio_engine);
-                            self.audio_engine.play_background_music_track(DEFAULT_BACKGROUND_MUSIC);
-
-                            self.interface.open_window(CharacterSelectionWindow::new(
-                                client_state().character_slots(),
-                                client_state().switch_request(),
-                            ));
-
-                            self.start_camera.set_focus_point(START_CAMERA_FOCUS_POINT);
-                            self.directional_shadow_camera.set_level_bound(map.get_level_bound());
-                        }
-                        false => {
-                            // Normal map switch
-                            let map = self.map.insert(map);
-
-                            map.set_ambient_sound_sources(&self.audio_engine);
-                            self.audio_engine.play_background_music_track(map.background_music_track_name());
-
-                            if let Some(position) = position {
-                                // SAFETY
-                                // `manually_asserted` is safe because we are in
-                                // the branch where `this_player`
-                                // is not `None`.
-                                let player = self.client_state.follow_mut(this_entity().manually_asserted());
-
-                                player.set_position(map, position, client_tick);
-                                self.player_camera.set_focus_point(player.get_position());
-                            }
-
-                            self.directional_shadow_camera.set_level_bound(map.get_level_bound());
-                            let _ = self.networking_system.map_loaded();
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
+        self.complete_async_loads(client_tick);
 
         #[cfg(feature = "debug")]
         loads_measurement.stop();
 
-        // Update the packet history callback.
         #[cfg(feature = "debug")]
         {
-            profile_block!("update packet history");
+            profile_block!("update packet history callback");
 
             let is_packet_inspector_open = self.interface.is_window_with_class_open(WindowClass::PacketInspector);
             self.client_state
@@ -2570,7 +1055,7 @@ impl Client {
                 {
                     let buffered_attack_entity = self.client_state.follow_mut(client_state().buffered_attack_entity());
                     if let Some(entity_id) = buffered_attack_entity.take() {
-                        let _ = self.networking_system.player_attack(entity_id);
+                        let _ = self.gameplay_provider.player_attack(entity_id);
 
                         if auto_attack {
                             *buffered_attack_entity = Some(entity_id);
@@ -3268,6 +1753,1538 @@ impl Client {
 
         // Apply the game state after all the UI work + rendering is done.
         self.client_state.apply();
+    }
+
+    fn process_gameplay_events(&mut self, client_tick: ClientTick) {
+        for event in self.gameplay_event_buffer.drain() {
+            match event {
+                GameplayEvent::LoginServerConnected {
+                    character_servers,
+                    login_data,
+                } => {
+                    self.audio_engine.play_sound_effect(self.main_menu_click_sound_effect);
+
+                    self.saved_login_data = Some(login_data);
+
+                    *self.client_state.follow_mut(client_state().character_servers()) = character_servers;
+
+                    #[cfg(not(feature = "debug"))]
+                    self.interface.close_all_windows();
+
+                    #[cfg(feature = "debug")]
+                    self.interface.close_all_windows_except(DEBUG_WINDOWS);
+
+                    self.interface
+                        .open_window(ServerSelectionWindow::new(client_state().character_servers()));
+                }
+                GameplayEvent::LoginServerConnectionFailed { message, .. } => {
+                    self.gameplay_provider.disconnect_from_login_server();
+
+                    self.interface.open_window(ErrorWindow::new(message.to_owned()));
+                }
+                GameplayEvent::LoginServerDisconnected { reason } => {
+                    if reason != DisconnectReason::ClosedByClient {
+                        // TODO: Make this an on-screen popup.
+                        #[cfg(feature = "debug")]
+                        print_debug!("Disconnection from the character server with error");
+
+                        let socket_address = self.saved_login_server_address.unwrap();
+                        self.gameplay_provider.connect_to_login_server(
+                            self.saved_packet_version,
+                            socket_address,
+                            &self.saved_username,
+                            &self.saved_password,
+                        );
+                    }
+                }
+                GameplayEvent::CharacterServerConnected { normal_slot_count } => {
+                    self.client_state
+                        .follow_mut(client_state().character_slots())
+                        .set_slot_count(normal_slot_count);
+
+                    let _ = self.gameplay_provider.request_character_list();
+                }
+                GameplayEvent::CharacterServerConnectionFailed { message, .. } => {
+                    self.gameplay_provider.disconnect_from_character_server();
+                    self.interface.open_window(ErrorWindow::new(message.to_owned()));
+                }
+                GameplayEvent::CharacterServerDisconnected { reason } => {
+                    if reason != DisconnectReason::ClosedByClient {
+                        // TODO: Make this an on-screen popup.
+                        #[cfg(feature = "debug")]
+                        print_debug!("Disconnection from the character server with error");
+
+                        let login_data = self.saved_login_data.as_ref().unwrap();
+                        let server = self.saved_character_server.clone().unwrap();
+                        self.gameplay_provider
+                            .connect_to_character_server(self.saved_packet_version, login_data, server);
+                    } else if !self.gameplay_provider.is_map_server_connected() {
+                        #[cfg(not(feature = "debug"))]
+                        self.interface.close_all_windows();
+
+                        #[cfg(feature = "debug")]
+                        self.interface.close_all_windows_except(DEBUG_WINDOWS);
+
+                        self.interface.open_window(LoginWindow::new(
+                            client_state().login_window(),
+                            client_state().login_settings(),
+                            client_state().client_info(),
+                        ));
+                    }
+                }
+                GameplayEvent::MapServerDisconnected { reason } => {
+                    if reason != DisconnectReason::ClosedByClient {
+                        // TODO: Make this an on-screen popup.
+                        #[cfg(feature = "debug")]
+                        print_debug!("Disconnection from the map server with error");
+                    }
+
+                    let login_data = self.saved_login_data.as_ref().unwrap();
+                    let server = self.saved_character_server.clone().unwrap();
+                    self.gameplay_provider
+                        .connect_to_character_server(self.saved_packet_version, login_data, server);
+
+                    self.map = None;
+
+                    self.particle_holder.clear();
+                    self.effect_holder.clear();
+                    self.point_light_manager.clear();
+                    self.audio_engine.clear_ambient_sound();
+
+                    self.client_state.follow_mut(client_state().entities()).clear();
+                    self.client_state.follow_mut(client_state().dead_entities()).clear();
+
+                    self.audio_engine.play_background_music_track(None);
+
+                    #[cfg(not(feature = "debug"))]
+                    self.interface.close_all_windows();
+
+                    #[cfg(feature = "debug")]
+                    self.interface.close_all_windows_except(DEBUG_WINDOWS);
+
+                    self.async_loader
+                        .request_map_load(DEFAULT_MAP.to_string(), Some(TilePosition::new(0, 0)));
+                }
+                GameplayEvent::InitialStats {
+                    strength_stat_points_cost,
+                    agility_stat_points_cost,
+                    vitality_stat_points_cost,
+                    intelligence_stat_points_cost,
+                    dexterity_stat_points_cost,
+                    luck_stat_points_cost,
+                } => {
+                    if let Some(player) = self.client_state.try_follow_mut(this_player()) {
+                        player.strength_stat_points_cost = strength_stat_points_cost;
+                        player.agility_stat_points_cost = agility_stat_points_cost;
+                        player.vitality_stat_points_cost = vitality_stat_points_cost;
+                        player.intelligence_stat_points_cost = intelligence_stat_points_cost;
+                        player.dexterity_stat_points_cost = dexterity_stat_points_cost;
+                        player.luck_stat_points_cost = luck_stat_points_cost;
+                    }
+                }
+                GameplayEvent::ResurrectPlayer { entity_id } => {
+                    // If the resurrected player is us, close the resurrect window.
+                    if self
+                        .client_state
+                        .try_follow(this_entity())
+                        .is_some_and(|player| player.get_entity_id() == entity_id)
+                    {
+                        self.interface.close_window_with_class(WindowClass::Respawn);
+                    }
+                }
+                GameplayEvent::PlayerStandUp { entity_id } => {
+                    if let Some(entity) = self
+                        .client_state
+                        .follow_mut(client_state().entities())
+                        .iter_mut()
+                        .find(|entity| entity.get_entity_id() == entity_id)
+                    {
+                        entity.set_idle(client_tick);
+                    }
+                }
+                GameplayEvent::AccountId { .. } => {}
+                GameplayEvent::CharacterList { characters } => {
+                    self.audio_engine.play_sound_effect(self.main_menu_click_sound_effect);
+
+                    self.client_state
+                        .follow_mut(client_state().character_slots())
+                        .set_characters(characters);
+
+                    if !self.interface.is_window_with_class_open(WindowClass::CharacterSelection) {
+                        // TODO: this will do one unnecessary restore_focus. check
+                        // if that will be problematic
+
+                        #[cfg(not(feature = "debug"))]
+                        self.interface.close_all_windows();
+
+                        #[cfg(feature = "debug")]
+                        self.interface.close_all_windows_except(DEBUG_WINDOWS);
+
+                        self.interface.open_window(CharacterSelectionWindow::new(
+                            client_state().character_slots(),
+                            client_state().switch_request(),
+                        ));
+                    }
+                }
+                GameplayEvent::CharacterSelectionFailed { message, .. } => self.interface.open_window(ErrorWindow::new(message.to_owned())),
+                GameplayEvent::CharacterDeleted => {
+                    if let Some(character_id) = self.client_state.follow_mut(client_state().currently_deleting()).take() {
+                        self.client_state
+                            .follow_mut(client_state().character_slots())
+                            .remove_with_id(character_id);
+                    }
+                }
+                GameplayEvent::CharacterDeletionFailed { message, .. } => {
+                    *self.client_state.follow_mut(client_state().currently_deleting()) = None;
+                    self.interface.open_window(ErrorWindow::new(message.to_owned()))
+                }
+                GameplayEvent::CharacterSelected { login_data, .. } => {
+                    self.audio_engine.play_sound_effect(self.main_menu_click_sound_effect);
+
+                    let saved_login_data = self.saved_login_data.as_ref().unwrap();
+                    self.gameplay_provider.disconnect_from_character_server();
+                    self.gameplay_provider
+                        .connect_to_map_server(self.saved_packet_version, saved_login_data, login_data);
+                    // Ask for the client tick right away, so that the player isn't de-synced when
+                    // they spawn on the map.
+                    let _ = self.gameplay_provider.request_client_tick();
+
+                    let character_information = self
+                        .client_state
+                        .follow(client_state().character_slots())
+                        .with_id(login_data.character_id)
+                        .cloned()
+                        .unwrap();
+
+                    let mut player = Entity::Player(Player::new(saved_login_data.account_id, &character_information, client_tick));
+
+                    *self.client_state.follow_mut(client_state().player_name()) = character_information.name;
+
+                    let entity_id = player.get_entity_id();
+                    let entity_type = player.get_entity_type();
+                    let entity_part_files = player.get_entity_part_files(&self.library);
+
+                    if let Some(animation_data) = self
+                        .async_loader
+                        .request_animation_data_load(entity_id, entity_type, entity_part_files)
+                    {
+                        player.set_animation_data(animation_data);
+                    }
+
+                    self.client_state.follow_mut(client_state().entities()).push(player);
+
+                    self.interface.close_window_with_class(WindowClass::CharacterSelection);
+                    self.interface.open_window(CharacterOverviewWindow::new(
+                        client_state().player_name(),
+                        // TODO: Check that manually asserting is fine. Technically this window should only
+                        // be open while the player is selected.
+                        this_player().manually_asserted().base_level(),
+                        // TODO: Check that manually asserting is fine. Technically this window should only
+                        // be open while the player is selected.
+                        this_player().manually_asserted().job_level(),
+                    ));
+                    self.interface
+                        .open_window(ChatWindow::new(client_state().chat_window(), client_state().chat_messages()));
+                    self.interface.open_window(HotbarWindow::new(client_state().hotbar().skills()));
+
+                    // Put the dialog system in a well-defined state.
+                    self.client_state.follow_mut(client_state().dialog_window()).end();
+
+                    self.map = None;
+
+                    self.particle_holder.clear();
+                    self.effect_holder.clear();
+                    self.point_light_manager.clear();
+                    self.audio_engine.clear_ambient_sound();
+                }
+                GameplayEvent::CharacterCreated { character_information } => {
+                    self.client_state
+                        .follow_mut(client_state().character_slots())
+                        .add_character(character_information);
+
+                    self.interface.close_window_with_class(WindowClass::CharacterCreation);
+                }
+                GameplayEvent::CharacterCreationFailed { message, .. } => {
+                    self.interface.open_window(ErrorWindow::new(message.to_owned()));
+                }
+                GameplayEvent::CharacterSlotSwitched => {
+                    *self.client_state.follow_mut(client_state().switch_request()) = None;
+                }
+                GameplayEvent::CharacterSlotSwitchFailed => {
+                    self.interface
+                        .open_window(ErrorWindow::new("Failed to switch character slots".to_owned()));
+                }
+                GameplayEvent::AddEntity { entity_data } => {
+                    if let Some(map) = &self.map
+                        && let Some(npc) = Npc::new(map, &mut self.path_finder, entity_data, client_tick)
+                    {
+                        let mut npc = Entity::Npc(npc);
+
+                        let entity_id = npc.get_entity_id();
+                        let entity_type = npc.get_entity_type();
+                        let entity_part_files = npc.get_entity_part_files(&self.library);
+
+                        let entities = self.client_state.follow_mut(client_state().entities());
+
+                        // Check if this entity was fading out and capture its current alpha value
+                        // so we can smoothly transition to fading in from the same alpha.
+                        let old_entity_alpha = entities
+                            .iter()
+                            .find(|entity| entity.get_entity_id() == entity_id)
+                            .and_then(|entity| match entity.get_fade_state() {
+                                FadeState::FadingOut { .. } => Some(entity.get_fade_state().calculate_alpha(client_tick)),
+                                _ => None,
+                            });
+
+                        // Sometimes (like after a job change) the server will tell the client
+                        // that a new entity appeared, even though it was already on screen. So
+                        // to prevent the entity existing twice, we remove the old one.
+                        entities.retain(|entity| entity.get_entity_id() != entity_id);
+
+                        // If the entity was fading out, start fading in from its current alpha value.
+                        if let Some(alpha) = old_entity_alpha {
+                            npc.set_fade_state(FadeState::from_alpha(alpha, FadeDirection::In, client_tick));
+                        }
+
+                        if let Some(animation_data) =
+                            self.async_loader
+                                .request_animation_data_load(entity_id, entity_type, entity_part_files)
+                        {
+                            npc.set_animation_data(animation_data);
+                        }
+
+                        #[cfg(feature = "debug")]
+                        npc.generate_pathing_mesh(&self.device, &self.queue, self.graphics_engine.bindless_support(), map);
+
+                        entities.push(npc);
+                    }
+                }
+                GameplayEvent::RemoveEntity { entity_id, reason } => {
+                    // If the motive is dead, you need to set the player to dead.
+                    if reason == DisappearanceReason::Died {
+                        if let Some(entity) = self
+                            .client_state
+                            .follow_mut(client_state().entities())
+                            .iter_mut()
+                            .find(|entity| entity.get_entity_id() == entity_id)
+                        {
+                            let entity_type = entity.get_entity_type();
+
+                            if entity_type == EntityType::Monster {
+                                let mut entity = entity.clone();
+                                entity.set_dead(client_tick);
+                                entity.stop_movement();
+
+                                // Remove the entity from the list of alive entities.
+                                self.client_state
+                                    .follow_mut(client_state().entities())
+                                    .retain(|entity| entity.get_entity_id() != entity_id);
+
+                                // Add the entity to the list of dead entities.
+                                self.client_state.follow_mut(client_state().dead_entities()).push(entity);
+                            } else if entity_type == EntityType::Player {
+                                entity.set_dead(client_tick);
+
+                                // If the player is us, we need to open the respawn window.
+                                if entity_id == self.client_state.follow(client_state().entities())[0].get_entity_id() {
+                                    self.interface.open_window(RespawnWindow);
+                                }
+                            }
+                        }
+                    } else {
+                        // For non-death disappearances, start fading out the entity.
+                        if let Some(entity) = self
+                            .client_state
+                            .follow_mut(client_state().entities())
+                            .iter_mut()
+                            .find(|entity| entity.get_entity_id() == entity_id)
+                        {
+                            // Preserve alpha when transitioning from any state to fading out.
+                            let current_alpha = entity.get_fade_state().calculate_alpha(client_tick);
+                            entity.set_fade_state(FadeState::from_alpha(current_alpha, FadeDirection::Out, client_tick));
+                        }
+                    }
+
+                    // If the entity that was removed had an attack buffered we remove the entity
+                    // from the buffer.
+                    let buffered_attack_entity = self.client_state.follow_mut(client_state().buffered_attack_entity());
+                    if buffered_attack_entity.is_some_and(|buffered_entity_id| buffered_entity_id == entity_id) {
+                        *buffered_attack_entity = None;
+                    }
+                }
+                GameplayEvent::EntityMove {
+                    entity_id,
+                    origin,
+                    destination,
+                    starting_timestamp,
+                } => {
+                    let entities = self.client_state.follow_mut(client_state().entities());
+                    let entity = entities.iter_mut().find(|entity| entity.get_entity_id() == entity_id);
+
+                    if let Some(entity) = entity
+                        && let Some(map) = &self.map
+                    {
+                        entity.move_from_to(
+                            map,
+                            &mut self.path_finder,
+                            origin.tile_position(),
+                            destination.tile_position(),
+                            starting_timestamp,
+                        );
+                        #[cfg(feature = "debug")]
+                        entity.generate_pathing_mesh(&self.device, &self.queue, self.graphics_engine.bindless_support(), map);
+                    }
+                }
+                GameplayEvent::PlayerMove {
+                    origin,
+                    destination,
+                    starting_timestamp,
+                } => {
+                    if let Some(map) = &self.map
+                        && let Some(player) = self.client_state.try_follow_mut(this_entity())
+                    {
+                        player.move_from_to(
+                            map,
+                            &mut self.path_finder,
+                            origin.tile_position(),
+                            destination.tile_position(),
+                            starting_timestamp,
+                        );
+                        #[cfg(feature = "debug")]
+                        player.generate_pathing_mesh(&self.device, &self.queue, self.graphics_engine.bindless_support(), map);
+                    }
+                }
+                GameplayEvent::ChangeMap { map_name, position } => {
+                    self.map = None;
+                    self.particle_holder.clear();
+                    self.effect_holder.clear();
+                    self.point_light_manager.clear();
+                    self.audio_engine.clear_ambient_sound();
+
+                    // Only the player must stay alive between map changes.
+                    self.client_state.follow_mut(client_state().entities()).truncate(1);
+                    self.client_state.follow_mut(client_state().dead_entities()).clear();
+
+                    // Close any remaining dialogs.
+                    self.interface.close_window_with_class(WindowClass::Dialog);
+
+                    self.async_loader.request_map_load(map_name, Some(position));
+                }
+                GameplayEvent::UpdateClientTick { client_tick, received_at } => {
+                    self.game_timer.set_client_tick(client_tick, received_at);
+                }
+                GameplayEvent::ChatMessage { text, color } => {
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(text, color));
+                }
+                GameplayEvent::UpdateEntityDetails { entity_id, name } => {
+                    let entity = self
+                        .client_state
+                        .follow_mut(client_state().entities())
+                        .iter_mut()
+                        .find(|entity| entity.get_entity_id() == entity_id);
+
+                    if let Some(entity) = entity {
+                        entity.set_details(name);
+                    }
+                }
+                GameplayEvent::DamageEffect {
+                    source_entity_id,
+                    destination_entity_id,
+                    damage_amount,
+                    attack_duration,
+                    is_critical,
+                } => {
+                    let target_position = self
+                        .client_state
+                        .follow(client_state().entities())
+                        .iter()
+                        .find(|entity| entity.get_entity_id() == destination_entity_id)
+                        .map(|entity| entity.get_tile_position());
+
+                    // Auto attack logic.
+                    if self
+                        .client_state
+                        .try_follow(this_entity())
+                        .is_some_and(|player| player.get_entity_id() == source_entity_id)
+                    {
+                        let auto_attack = *self.client_state.follow(client_state().game_settings().auto_attack());
+                        let buffered_attack_entity = self.client_state.follow_mut(client_state().buffered_attack_entity());
+
+                        if let Some(entity_id) = buffered_attack_entity.take() {
+                            let _ = self.gameplay_provider.player_attack(entity_id);
+
+                            if auto_attack {
+                                *buffered_attack_entity = Some(entity_id);
+                            }
+                        }
+                    }
+
+                    if let Some(entity) = self
+                        .client_state
+                        .follow_mut(client_state().entities())
+                        .iter_mut()
+                        .find(|entity| entity.get_entity_id() == source_entity_id)
+                    // TODO: Maybe also or_else this_entity?
+                    {
+                        if let Some(target_position) = target_position {
+                            entity.rotate_towards(target_position);
+                        }
+
+                        entity.set_attack(attack_duration, is_critical, client_tick);
+                    }
+
+                    if let Some(entity) = self
+                        .client_state
+                        .follow(client_state().entities())
+                        .iter()
+                        .find(|entity| entity.get_entity_id() == destination_entity_id)
+                        .or_else(|| self.client_state.try_follow(this_entity()))
+                    {
+                        let particle: Box<dyn Particle + Send + Sync> = match damage_amount {
+                            Some(amount) => Box::new(DamageNumber::new(entity.get_position(), amount.to_string(), is_critical)),
+                            None => Box::new(Miss::new(entity.get_position())),
+                        };
+
+                        self.particle_holder.spawn_particle(particle);
+                    }
+                }
+                GameplayEvent::HealEffect { entity_id, heal_amount } => {
+                    if let Some(entity) = self
+                        .client_state
+                        .follow(client_state().entities())
+                        .iter()
+                        .find(|entity| entity.get_entity_id() == entity_id)
+                        .or_else(|| self.client_state.try_follow(this_entity()))
+                    {
+                        self.particle_holder
+                            .spawn_particle(Box::new(HealNumber::new(entity.get_position(), heal_amount.to_string())));
+                    }
+                }
+                GameplayEvent::UpdateEntityHealth {
+                    entity_id,
+                    health_points,
+                    maximum_health_points,
+                } => {
+                    let entity = self
+                        .client_state
+                        .follow_mut(client_state().entities())
+                        .iter_mut()
+                        .find(|entity| entity.get_entity_id() == entity_id);
+
+                    if let Some(entity) = entity {
+                        entity.update_health(health_points, maximum_health_points);
+                    }
+                }
+                GameplayEvent::UpdateStat { stat_type } => {
+                    if let Some(player) = self.client_state.try_follow_mut(this_player()) {
+                        player.update_stat(stat_type);
+                    }
+                }
+                GameplayEvent::OpenDialog { text, npc_id } => {
+                    self.client_state
+                        .follow_mut(client_state().dialog_window())
+                        .initialize(npc_id)
+                        .add_text(text);
+
+                    self.interface.open_window(DialogWindow::new(client_state().dialog_window()));
+                }
+                GameplayEvent::AddNextButton { npc_id } => {
+                    self.client_state
+                        .follow_mut(client_state().dialog_window())
+                        // An NPCs could start the dialog with this packet so we want to make sure it's initialized.
+                        .initialize(npc_id)
+                        .add_next_button();
+
+                    self.interface.open_window(DialogWindow::new(client_state().dialog_window()));
+                }
+                GameplayEvent::AddCloseButton { npc_id } => {
+                    // Some NPCs send the `CloseButtonPacket` after the dialog
+                    // has been closed. We want to filter these out because otherwise we get a
+                    // close button at the start of the next dialog.
+                    if self.interface.is_window_with_class_open(WindowClass::Dialog) {
+                        self.client_state
+                            .follow_mut(client_state().dialog_window())
+                            // Technically this call is redundant since the window is already open
+                            // but we keep it for consistency.
+                            .initialize(npc_id)
+                            .add_close_button();
+                    }
+                }
+                GameplayEvent::AddChoiceButtons { choices, npc_id } => {
+                    self.client_state
+                        .follow_mut(client_state().dialog_window())
+                        // Some NPCs start the dialog with this packet so we need to make sure it's initialized.
+                        .initialize(npc_id)
+                        .add_choice_buttons(choices);
+
+                    self.interface.open_window(DialogWindow::new(client_state().dialog_window()));
+                }
+                GameplayEvent::AddQuestEffect { quest_effect } => {
+                    if let Some(map) = &self.map {
+                        self.particle_holder.add_quest_icon(&self.texture_loader, map, quest_effect)
+                    }
+                }
+                GameplayEvent::RemoveQuestEffect { entity_id } => self.particle_holder.remove_quest_icon(entity_id),
+                GameplayEvent::SetInventory { items } => {
+                    self.client_state
+                        .follow_mut(client_state().inventory())
+                        .fill(&self.async_loader, &self.library, items);
+                }
+                GameplayEvent::IventoryItemAdded { item } => {
+                    self.client_state
+                        .follow_mut(client_state().inventory())
+                        .add_item(&self.async_loader, &self.library, item);
+
+                    // TODO: Update the selling items. If you pick up an item
+                    // that you already have the sell window
+                    // should allow you to sell the new
+                    // amount of items.
+                }
+                GameplayEvent::InventoryItemRemoved { index, amount, .. } => {
+                    self.client_state.follow_mut(client_state().inventory()).remove_item(index, amount);
+                }
+                GameplayEvent::SkillTree { skill_information } => {
+                    self.client_state.follow_mut(client_state().skill_tree()).fill(
+                        &self.sprite_loader,
+                        &self.action_loader,
+                        skill_information,
+                        client_tick,
+                    );
+                }
+                GameplayEvent::UpdateEquippedPosition { index, equipped_position } => {
+                    self.client_state
+                        .follow_mut(client_state().inventory())
+                        .update_equipped_position(index, equipped_position);
+                }
+                GameplayEvent::ChangeJob { account_id, job_id } => {
+                    let entity = self
+                        .client_state
+                        .follow_mut(client_state().entities())
+                        .iter_mut()
+                        .find(|entity| entity.get_entity_id().0 == account_id.0)
+                        .unwrap();
+
+                    // FIX: A job change does not automatically send packets for the
+                    // inventory and for unequipping items. We should probably manually
+                    // request a full list of items and the hotbar.
+
+                    entity.set_job(job_id as usize);
+
+                    if let Some(animation_data) = self.async_loader.request_animation_data_load(
+                        entity.get_entity_id(),
+                        entity.get_entity_type(),
+                        entity.get_entity_part_files(&self.library),
+                    ) {
+                        entity.set_animation_data(animation_data);
+                    }
+                }
+                GameplayEvent::ChangeHair { account_id, hair_id } => {
+                    let entity = self
+                        .client_state
+                        .follow_mut(client_state().entities())
+                        .iter_mut()
+                        .find(|entity| entity.get_entity_id().0 == account_id.0)
+                        .unwrap();
+
+                    entity.set_hair(hair_id as usize);
+
+                    if let Some(animation_data) = self.async_loader.request_animation_data_load(
+                        entity.get_entity_id(),
+                        entity.get_entity_type(),
+                        entity.get_entity_part_files(&self.library),
+                    ) {
+                        entity.set_animation_data(animation_data);
+                    }
+                }
+                GameplayEvent::LoggedOut => {
+                    self.gameplay_provider.disconnect_from_map_server();
+                }
+                GameplayEvent::FriendRequest { requestee } => {
+                    self.interface.open_window(FriendRequestWindow::new(requestee));
+                }
+                GameplayEvent::FriendRemoved { account_id, character_id } => {
+                    self.client_state
+                        .follow_mut(client_state().friend_list())
+                        .retain(|friend| !(friend.account_id == account_id && friend.character_id == character_id));
+                }
+                GameplayEvent::FriendAdded { friend } => {
+                    self.client_state.follow_mut(client_state().friend_list()).push(friend);
+                }
+                GameplayEvent::VisualEffect { effect_path, entity_id } => {
+                    let effect = self.effect_loader.get_or_load(effect_path, &self.texture_loader).unwrap();
+                    let frame_timer = effect.new_frame_timer();
+
+                    self.effect_holder.add_effect(Box::new(EffectWithLight::new(
+                        effect,
+                        frame_timer,
+                        EffectCenter::Entity(entity_id, Point3::new(0.0, 0.0, 0.0)),
+                        Vector3::new(0.0, 9.0, 0.0),
+                        // FIX: The point light ID needs to be unique.
+                        // The point light manager uses the ID to decide which point light
+                        // renders with a shadow. Having duplicate IDs might cause some
+                        // visual artifacts, such as flickering, as the point lights switch
+                        // between shadows and no shadows.
+                        PointLightId::new(entity_id.0),
+                        Vector3::new(0.0, 12.0, 0.0),
+                        Color::WHITE,
+                        50.0,
+                        false,
+                    )));
+                }
+                GameplayEvent::AddSkillUnit {
+                    entity_id,
+                    unit_id,
+                    position,
+                } => {
+                    let Some(map) = &self.map else {
+                        continue;
+                    };
+
+                    match unit_id {
+                        UnitId::Firewall => {
+                            let Some(position) = map.get_world_position(position) else {
+                                #[cfg(feature = "debug")]
+                                print_debug!("[{}] entity with id {:?} is out of map bounds", "error".red(), entity_id);
+                                continue;
+                            };
+
+                            let effect = self.effect_loader.get_or_load("firewall.str", &self.texture_loader).unwrap();
+                            let frame_timer = effect.new_frame_timer();
+
+                            self.effect_holder.add_unit(
+                                Box::new(EffectWithLight::new(
+                                    effect,
+                                    frame_timer,
+                                    EffectCenter::Position(position),
+                                    Vector3::new(0.0, 0.0, 0.0),
+                                    PointLightId::new(unit_id as u32),
+                                    Vector3::new(0.0, 6.0, 0.0),
+                                    Color::rgb_u8(255, 30, 0),
+                                    60.0,
+                                    true,
+                                )),
+                                entity_id,
+                            );
+                        }
+                        UnitId::Pneuma => {
+                            let Some(position) = map.get_world_position(position) else {
+                                #[cfg(feature = "debug")]
+                                print_debug!("[{}] entity with id {:?} is out of map bounds", "error".red(), entity_id);
+                                continue;
+                            };
+
+                            let effect = self.effect_loader.get_or_load("pneuma1.str", &self.texture_loader).unwrap();
+                            let frame_timer = effect.new_frame_timer();
+
+                            self.effect_holder.add_unit(
+                                Box::new(EffectWithLight::new(
+                                    effect,
+                                    frame_timer,
+                                    EffectCenter::Position(position),
+                                    Vector3::new(0.0, 0.0, 0.0),
+                                    PointLightId::new(unit_id as u32),
+                                    Vector3::new(0.0, 6.0, 0.0),
+                                    Color::rgb_u8(83, 220, 108).into(),
+                                    40.0,
+                                    false,
+                                )),
+                                entity_id,
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+                GameplayEvent::RemoveSkillUnit { entity_id } => {
+                    self.effect_holder.remove_unit(entity_id);
+                }
+                GameplayEvent::SetFriendList { friend_list } => {
+                    *self.client_state.follow_mut(client_state().friend_list()) = friend_list;
+                }
+                GameplayEvent::SetHotkeyData { tab, hotkeys } => {
+                    // FIX: Since we only have one hotbar at the moment, we ignore
+                    // everything but 0.
+                    if tab.0 != 0 {
+                        continue;
+                    }
+
+                    for (index, hotkey) in hotkeys.into_iter().take(10).enumerate() {
+                        match hotkey {
+                            HotkeyState::Bound(hotkey) => {
+                                let Some(mut skill) = self
+                                    .client_state
+                                    .follow(client_state().skill_tree())
+                                    .find_skill(SkillId(hotkey.skill_id as u16))
+                                else {
+                                    self.client_state
+                                        .follow_mut(client_state().hotbar())
+                                        .clear_slot(&mut *self.gameplay_provider, HotbarSlot(index as u16));
+                                    continue;
+                                };
+
+                                skill.skill_level = hotkey.quantity_or_skill_level;
+                                self.client_state
+                                    .follow_mut(client_state().hotbar())
+                                    .set_slot(HotbarSlot(index as u16), skill);
+                            }
+                            HotkeyState::Unbound => self
+                                .client_state
+                                .follow_mut(client_state().hotbar())
+                                .unset_slot(HotbarSlot(index as u16)),
+                        }
+                    }
+                }
+                GameplayEvent::OpenShop { items } => {
+                    // Close the dialog. Some NPCs don't use the `BuyOrSellPacket` and instead use
+                    // the regular `DialogMenuPacket`. When opening the shop that dialog should be
+                    // closed.
+                    self.client_state.follow_mut(client_state().dialog_window()).end();
+                    self.interface.close_window_with_class(WindowClass::Dialog);
+
+                    *self.client_state.follow_mut(client_state().shop_items()) = items
+                        .into_iter()
+                        .map(|item| self.library.load_shop_item_metadata(&self.async_loader, item))
+                        .collect();
+
+                    self.interface
+                        .open_window(BuyWindow::new(client_state().shop_items(), client_state().buy_cart()));
+                    self.interface.open_window(BuyCartWindow::new(client_state().buy_cart()));
+                }
+                GameplayEvent::AskBuyOrSell { shop_id } => {
+                    self.interface.open_window(BuyOrSellWindow::new(shop_id));
+                }
+                GameplayEvent::BuyingCompleted { result } => match result {
+                    BuyShopItemsResult::Success => {
+                        let _ = self.gameplay_provider.close_shop();
+
+                        // Clear the cart.
+                        self.client_state.follow_mut(client_state().buy_cart()).clear();
+
+                        self.interface.close_window_with_class(WindowClass::Buy);
+                        self.interface.close_window_with_class(WindowClass::BuyCart);
+                    }
+                    BuyShopItemsResult::Error => {
+                        self.client_state
+                            .follow_mut(client_state().chat_messages())
+                            .push(ChatMessage::new("Failed to buy items".to_owned(), MessageColor::Error));
+                    }
+                },
+                GameplayEvent::SellItemList { items } => {
+                    // Close the dialog. Some NPCs don't use the `BuyOrSellPacket` and instead use
+                    // the regular `DialogMenuPacket`. When opening the shop that dialog should be
+                    // closed.
+                    self.client_state.follow_mut(client_state().dialog_window()).end();
+                    self.interface.close_window_with_class(WindowClass::Dialog);
+
+                    let inventory_items = self.client_state.follow(client_state().inventory().items());
+                    let sell_items = items
+                        .into_iter()
+                        .map(|item| {
+                            let inventory_item = inventory_items
+                                .iter()
+                                .find(|inventory_item| inventory_item.index == item.inventory_index)
+                                .expect("item not in inventory");
+
+                            let name = inventory_item.metadata.name.clone();
+                            let texture = inventory_item.metadata.texture.clone();
+                            let quantity = match &inventory_item.details {
+                                InventoryItemDetails::Regular { amount, .. } => *amount,
+                                InventoryItemDetails::Equippable { .. } => 1,
+                            };
+
+                            SellItem {
+                                metadata: (ResourceMetadata { name, texture }, quantity),
+                                inventory_index: item.inventory_index,
+                                price: item.price,
+                                overcharge_price: item.overcharge_price,
+                            }
+                        })
+                        .collect();
+
+                    *self.client_state.follow_mut(client_state().sell_items()) = sell_items;
+
+                    self.interface
+                        .open_window(SellWindow::new(client_state().sell_items(), client_state().sell_cart()));
+                    self.interface.open_window(SellCartWindow::new(client_state().sell_cart()));
+                }
+                GameplayEvent::SellingCompleted { result } => match result {
+                    SellItemsResult::Success => {
+                        // Clear the cart.
+                        self.client_state.follow_mut(client_state().buy_cart()).clear();
+
+                        self.interface.close_window_with_class(WindowClass::Sell);
+                        self.interface.close_window_with_class(WindowClass::SellCart);
+                    }
+                    SellItemsResult::Error => {
+                        self.client_state
+                            .follow_mut(client_state().chat_messages())
+                            .push(ChatMessage::new("Failed to sell items".to_owned(), MessageColor::Error));
+                    }
+                },
+                GameplayEvent::AttackFailed {
+                    target_entity_id,
+                    target_position,
+                    player_position,
+                    attack_range,
+                } => {
+                    if let Some(map) = &self.map
+                        && self.client_state.try_follow_mut(this_entity()).is_some()
+                        // Make sure that the entity is on screen.
+                        && self
+                        .client_state
+                        .follow(client_state().entities())
+                        .iter()
+                        .any(|entity| entity.get_entity_id() == target_entity_id)
+                        && let Some(path) =
+                        self.path_finder
+                            .find_walkable_path_in_range(&**map, player_position, target_position, attack_range)
+                    {
+                        let nearest_tile = path.last().unwrap();
+
+                        let _ = self.gameplay_provider.player_move(WorldPosition {
+                            x: nearest_tile.x,
+                            y: nearest_tile.y,
+                            direction: Direction::North,
+                        });
+
+                        *self.client_state.follow_mut(client_state().buffered_attack_entity()) = Some(target_entity_id);
+                    }
+                }
+            }
+        }
+    }
+
+    fn process_user_events(&mut self, event_loop: &ActiveEventLoop, delta_time: f64, input_report: &InputReport) -> bool {
+        self.interface.process_events(&mut self.input_event_buffer);
+        let interface_has_focus = self.interface.has_focus();
+
+        if self.interface.get_mouse_mode().is_rotating_camera() {
+            // TODO: Does this really need to be a InputEvent?
+            let rotation = input_report.mouse_delta.width;
+            self.input_event_buffer.push(InputEvent::RotateCamera { rotation });
+        }
+
+        if !interface_has_focus {
+            self.input_system.handle_keyboard_input(
+                &mut self.input_event_buffer,
+                #[cfg(feature = "debug")]
+                self.interface.get_mouse_mode().is_default(),
+                #[cfg(feature = "debug")]
+                *self.client_state.follow(client_state().render_options().use_debug_camera()),
+            );
+        }
+
+        for event in self.input_event_buffer.drain(..) {
+            match event {
+                InputEvent::LogIn {
+                    service_id,
+                    username,
+                    password,
+                } => {
+                    let service = self
+                        .client_state
+                        .follow(client_state().client_info().services())
+                        .iter()
+                        .find(|service| service.service_id() == service_id)
+                        .unwrap();
+                    let address = format!("{}:{}", service.address, service.port);
+                    let socket_address = address
+                        .to_socket_addrs()
+                        .expect("Failed to resolve IP")
+                        .next()
+                        .expect("ill formatted service IP");
+
+                    let packet_version = match service.packet_version {
+                        Some(packet_version) => match packet_version {
+                            PacketVersion::_20220406 => SupportedPacketVersion::_20220406,
+                            PacketVersion::Unsupported(packet_version) => {
+                                self.interface.open_window(ErrorWindow::new(format!(
+                                    "Selected server has an unsupported package version: {packet_version}"
+                                )));
+                                continue;
+                            }
+                        },
+                        None => FALLBACK_PACKET_VERSION,
+                    };
+
+                    self.saved_login_server_address = Some(socket_address);
+                    self.saved_username = username;
+                    self.saved_password = password;
+                    self.saved_packet_version = packet_version;
+
+                    self.gameplay_provider.connect_to_login_server(
+                        packet_version,
+                        socket_address,
+                        &self.saved_username,
+                        &self.saved_password,
+                    );
+                }
+                InputEvent::SelectServer {
+                    character_server_information,
+                } => {
+                    self.saved_character_server = Some(character_server_information.clone());
+
+                    self.gameplay_provider.disconnect_from_login_server();
+
+                    // Korangar should never attempt to connect to the character
+                    // server before it logged in to the login server, so it's fine to
+                    // unwrap here.
+                    let login_data = self.saved_login_data.as_ref().unwrap();
+                    self.gameplay_provider
+                        .connect_to_character_server(self.saved_packet_version, login_data, character_server_information);
+                }
+                InputEvent::Respawn => {
+                    let _ = self.gameplay_provider.respawn();
+                    self.interface.close_window_with_class(WindowClass::Respawn);
+                }
+                InputEvent::LogOut => {
+                    let _ = self.gameplay_provider.log_out();
+                }
+                InputEvent::LogOutCharacter => {
+                    self.gameplay_provider.disconnect_from_character_server();
+                }
+                InputEvent::Exit => event_loop.exit(),
+                InputEvent::ZoomCamera { zoom_factor } => self.player_camera.soft_zoom(zoom_factor),
+                InputEvent::RotateCamera { rotation } => self.player_camera.soft_rotate(rotation),
+                InputEvent::ResetCameraRotation => self.player_camera.reset_rotation(),
+                InputEvent::ToggleMenuWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::Menu) {
+                            true => self.interface.close_window_with_class(WindowClass::Menu),
+                            false => self.interface.open_window(MenuWindow),
+                        }
+                    }
+                }
+                InputEvent::ToggleInventoryWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::Inventory) {
+                            true => self.interface.close_window_with_class(WindowClass::Inventory),
+                            false => self.interface.open_window(InventoryWindow::new(client_state().inventory().items())),
+                        }
+                    }
+                }
+                InputEvent::ToggleEquipmentWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::Equipment) {
+                            true => self.interface.close_window_with_class(WindowClass::Equipment),
+                            false => self.interface.open_window(EquipmentWindow::new(client_state().inventory().items())),
+                        }
+                    }
+                }
+                InputEvent::ToggleSkillTreeWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::SkillTree) {
+                            true => self.interface.close_window_with_class(WindowClass::SkillTree),
+                            false => self
+                                .interface
+                                .open_window(SkillTreeWindow::new(client_state().skill_tree().skills())),
+                        }
+                    }
+                }
+                InputEvent::ToggleStatsWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::Stats) {
+                            true => self.interface.close_window_with_class(WindowClass::Stats),
+                            false => self.interface.open_window(StatsWindow::new(this_player().manually_asserted())),
+                        }
+                    }
+                }
+                InputEvent::ToggleGameSettingsWindow => match self.interface.is_window_with_class_open(WindowClass::GameSettings) {
+                    true => self.interface.close_window_with_class(WindowClass::GameSettings),
+                    false => self.interface.open_window(GameSettingsWindow::new(client_state().game_settings())),
+                },
+                InputEvent::ToggleInterfaceSettingsWindow => match self.interface.is_window_with_class_open(WindowClass::InterfaceSettings)
+                {
+                    true => self.interface.close_window_with_class(WindowClass::InterfaceSettings),
+                    false => self.interface.open_window(InterfaceSettingsWindow::new(
+                        client_state().interface_settings(),
+                        client_state().interface_settings_capabilities(),
+                    )),
+                },
+                InputEvent::ToggleGraphicsSettingsWindow => match self.interface.is_window_with_class_open(WindowClass::GraphicsSettings) {
+                    true => self.interface.close_window_with_class(WindowClass::GraphicsSettings),
+                    false => self.interface.open_window(GraphicsSettingsWindow::new(
+                        client_state().graphics_settings(),
+                        client_state().graphics_settings_capabilities(),
+                    )),
+                },
+                InputEvent::ToggleAudioSettingsWindow => match self.interface.is_window_with_class_open(WindowClass::AudioSettings) {
+                    true => self.interface.close_window_with_class(WindowClass::AudioSettings),
+                    false => self
+                        .interface
+                        .open_window(AudioSettingsWindow::new(client_state().audio_settings())),
+                },
+                InputEvent::ToggleFriendListWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::FriendList) {
+                            true => self.interface.close_window_with_class(WindowClass::FriendList),
+                            false => self.interface.open_window(FriendListWindow::new(
+                                client_state().friend_list_window(),
+                                client_state().friend_list(),
+                            )),
+                        }
+                    }
+                }
+                InputEvent::CloseTopWindow => self.interface.close_top_window(&self.client_state),
+                InputEvent::ToggleShowInterface => self.show_interface = !self.show_interface,
+                InputEvent::SelectCharacter { slot } => {
+                    let _ = self.gameplay_provider.select_character(slot);
+                }
+                InputEvent::OpenCharacterCreationWindow { slot } => {
+                    // Clear the name before opening the window.
+                    self.client_state.follow_mut(client_state().create_character_name()).clear();
+
+                    self.interface
+                        .open_window(CharacterCreationWindow::new(client_state().create_character_name(), slot))
+                }
+                InputEvent::CreateCharacter { slot, name } => {
+                    let _ = self.gameplay_provider.create_character(slot, name);
+                }
+                InputEvent::DeleteCharacter { character_id } => {
+                    if self.client_state.follow(client_state().currently_deleting()).is_none() {
+                        let _ = self.gameplay_provider.delete_character(character_id);
+                        *self.client_state.follow_mut(client_state().currently_deleting()) = Some(character_id);
+                    }
+                }
+                InputEvent::SwitchCharacterSlot {
+                    origin_slot,
+                    destination_slot,
+                } => {
+                    let _ = self.gameplay_provider.switch_character_slot(origin_slot, destination_slot);
+                }
+                InputEvent::PlayerMove { destination } => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        let _ = self.gameplay_provider.player_move(WorldPosition {
+                            x: destination.x,
+                            y: destination.y,
+                            direction: Direction::North,
+                        });
+                    }
+
+                    // Unbuffer any buffered attack.
+                    *self.client_state.follow_mut(client_state().buffered_attack_entity()) = None;
+                }
+                InputEvent::PlayerInteract { entity_id } => {
+                    let entity = self
+                        .client_state
+                        .follow_mut(client_state().entities())
+                        .iter_mut()
+                        .find(|entity| entity.get_entity_id() == entity_id);
+
+                    if let Some(entity) = entity {
+                        let _ = match entity.get_entity_type() {
+                            EntityType::Npc => self.gameplay_provider.start_dialog(entity_id),
+                            EntityType::Monster => {
+                                let auto_attack = *self.client_state.follow(client_state().game_settings().auto_attack());
+                                let buffered_attack_entity = self.client_state.follow_mut(client_state().buffered_attack_entity());
+
+                                if auto_attack {
+                                    *buffered_attack_entity = Some(entity_id);
+                                }
+
+                                self.gameplay_provider.player_attack(entity_id)
+                            }
+                            EntityType::Warp => self.gameplay_provider.player_move({
+                                let position = entity.get_tile_position();
+                                WorldPosition {
+                                    x: position.x,
+                                    y: position.y,
+                                    direction: Direction::North,
+                                }
+                            }),
+                            _ => Ok(()),
+                        };
+                    }
+                }
+                #[cfg(feature = "debug")]
+                InputEvent::WarpToMap { map_name, position } => {
+                    let _ = self.gameplay_provider.warp_to_map(map_name, position);
+                }
+                InputEvent::SendMessage { text } => {
+                    // Handle special client commands.
+                    if text.as_str() == "/nc" {
+                        let auto_attack = self.client_state.follow_mut(client_state().game_settings().auto_attack());
+                        *auto_attack = !*auto_attack;
+                        continue;
+                    }
+
+                    let _ = self
+                        .gameplay_provider
+                        .send_chat_message(self.client_state.follow(client_state().player_name()), &text);
+                }
+                InputEvent::NextDialog { npc_id } => {
+                    let _ = self.gameplay_provider.next_dialog(npc_id);
+                }
+                InputEvent::CloseDialog { npc_id } => {
+                    let _ = self.gameplay_provider.close_dialog(npc_id);
+                    self.client_state.follow_mut(client_state().dialog_window()).end();
+                    self.interface.close_window_with_class(WindowClass::Dialog);
+                }
+                InputEvent::ChooseDialogOption { npc_id, option } => {
+                    let _ = self.gameplay_provider.choose_dialog_option(npc_id, option);
+
+                    if option == -1 {
+                        self.interface.close_window_with_class(WindowClass::Dialog);
+                    }
+                }
+                InputEvent::MoveItem { source, destination, item } => match (source, destination) {
+                    (ItemSource::Inventory, ItemSource::Equipment { position }) => {
+                        let _ = self.gameplay_provider.request_item_equip(item.index, position);
+                    }
+                    (ItemSource::Equipment { .. }, ItemSource::Inventory) => {
+                        let _ = self.gameplay_provider.request_item_unequip(item.index);
+                    }
+                    _ => {}
+                },
+                InputEvent::MoveSkill {
+                    source,
+                    destination,
+                    skill,
+                } => match (source, destination) {
+                    (SkillSource::SkillTree, SkillSource::Hotbar { slot }) => {
+                        self.client_state
+                            .follow_mut(client_state().hotbar())
+                            .update_slot(&mut *self.gameplay_provider, slot, skill);
+                    }
+                    (SkillSource::Hotbar { slot: source_slot }, SkillSource::Hotbar { slot: destination_slot }) => {
+                        self.client_state.follow_mut(client_state().hotbar()).swap_slot(
+                            &mut *self.gameplay_provider,
+                            source_slot,
+                            destination_slot,
+                        );
+                    }
+                    _ => {}
+                },
+                InputEvent::CastSkill { slot } => {
+                    if let Some(skill) = self.client_state.follow(client_state().hotbar()).get_skill_in_slot(slot).as_ref() {
+                        match skill.skill_type {
+                            SkillType::Passive => {}
+                            SkillType::Attack => {
+                                if let PickerTarget::Entity(entity_id) = input_report.mouse_target {
+                                    let _ = self
+                                        .gameplay_provider
+                                        .cast_skill(skill.skill_id, skill.skill_level, EntityId(entity_id));
+                                }
+                            }
+                            SkillType::Ground | SkillType::Trap => {
+                                if let PickerTarget::Tile { x, y } = input_report.mouse_target {
+                                    let _ = self
+                                        .gameplay_provider
+                                        .cast_ground_skill(skill.skill_id, skill.skill_level, TilePosition { x, y });
+                                }
+                            }
+                            SkillType::SelfCast => match skill.skill_id == ROLLING_CUTTER_ID {
+                                true => {
+                                    let _ = self.gameplay_provider.cast_channeling_skill(
+                                        skill.skill_id,
+                                        skill.skill_level,
+                                        self.client_state.follow(this_entity().manually_asserted()).get_entity_id(),
+                                    );
+                                }
+                                false => {
+                                    let _ = self.gameplay_provider.cast_skill(
+                                        skill.skill_id,
+                                        skill.skill_level,
+                                        self.client_state.follow(this_entity().manually_asserted()).get_entity_id(),
+                                    );
+                                }
+                            },
+                            SkillType::Support => {
+                                if let PickerTarget::Entity(entity_id) = input_report.mouse_target {
+                                    let _ = self
+                                        .gameplay_provider
+                                        .cast_skill(skill.skill_id, skill.skill_level, EntityId(entity_id));
+                                } else {
+                                    let _ = self.gameplay_provider.cast_skill(
+                                        skill.skill_id,
+                                        skill.skill_level,
+                                        self.client_state.follow(this_entity().manually_asserted()).get_entity_id(),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                InputEvent::StopSkill { slot } => {
+                    if let Some(skill) = self.client_state.follow(client_state().hotbar()).get_skill_in_slot(slot).as_ref()
+                        && skill.skill_id == ROLLING_CUTTER_ID
+                    {
+                        let _ = self.gameplay_provider.stop_channeling_skill(skill.skill_id);
+                    }
+                }
+                InputEvent::AddFriend { character_name } => {
+                    if character_name.len() > 24 {
+                        #[cfg(feature = "debug")]
+                        print_debug!("[{}] friend name {} is too long", "error".red(), character_name.magenta());
+                    } else {
+                        let _ = self.gameplay_provider.add_friend(character_name);
+                    }
+                }
+                InputEvent::RemoveFriend { account_id, character_id } => {
+                    let _ = self.gameplay_provider.remove_friend(account_id, character_id);
+                }
+                InputEvent::RejectFriendRequest { account_id, character_id } => {
+                    let _ = self.gameplay_provider.reject_friend_request(account_id, character_id);
+                    self.interface.close_window_with_class(WindowClass::FriendRequest);
+                }
+                InputEvent::AcceptFriendRequest { account_id, character_id } => {
+                    let _ = self.gameplay_provider.accept_friend_request(account_id, character_id);
+                    self.interface.close_window_with_class(WindowClass::FriendRequest);
+                }
+                InputEvent::BuyItems { items } => {
+                    let _ = self.gameplay_provider.purchase_items(items);
+                }
+                InputEvent::CloseShop => {
+                    let _ = self.gameplay_provider.close_shop();
+
+                    // Clear the carts.
+                    self.client_state.follow_mut(client_state().buy_cart()).clear();
+                    self.client_state.follow_mut(client_state().sell_cart()).clear();
+
+                    self.interface.close_window_with_class(WindowClass::Buy);
+                    self.interface.close_window_with_class(WindowClass::BuyCart);
+                    self.interface.close_window_with_class(WindowClass::Sell);
+                    self.interface.close_window_with_class(WindowClass::SellCart);
+                }
+                InputEvent::BuyOrSell { shop_id, buy_or_sell } => {
+                    let _ = self.gameplay_provider.select_buy_or_sell(shop_id, buy_or_sell);
+                    self.interface.close_window_with_class(WindowClass::BuyOrSell);
+                }
+                InputEvent::SellItems { items } => {
+                    let _ = self.gameplay_provider.sell_items(items);
+                }
+                InputEvent::StatUp { stat_type } => {
+                    let _ = self.gameplay_provider.request_stat_up(stat_type);
+                }
+                #[cfg(feature = "debug")]
+                InputEvent::ReloadLanguage => {
+                    let language = *self.client_state.follow(client_state().interface_settings().language());
+                    *self.client_state.follow_mut(client_state().localization()) =
+                        Localization::load_language(&self.game_file_loader, language);
+                }
+                #[cfg(feature = "debug")]
+                InputEvent::SaveLanguage => {
+                    let language = *self.client_state.follow(client_state().interface_settings().language());
+                    self.client_state.follow(client_state().localization()).save_language(language);
+                }
+                #[cfg(feature = "debug")]
+                InputEvent::OpenMarkerDetails { marker_identifier } => {
+                    if let Some(map) = &self.map {
+                        match marker_identifier {
+                            MarkerIdentifier::Object(key) => {
+                                let inspecting_objects = self.client_state.follow_mut(client_state().inspecting_objects());
+                                let object = map.get_object(key);
+                                let object_path = state::prepare_object_inspection(inspecting_objects, object);
+
+                                self.interface.open_state_window(object_path);
+                            }
+                            MarkerIdentifier::LightSource(key) => {
+                                let inspecting_lights = self.client_state.follow_mut(client_state().inspecting_light_sources());
+                                let light_source = map.get_light_source(key);
+                                let light_source_path = state::prepare_light_source_inspection(inspecting_lights, light_source);
+
+                                self.interface.open_state_window(light_source_path);
+                            }
+                            MarkerIdentifier::SoundSource(index) => {
+                                let inspecting_sounds = self.client_state.follow_mut(client_state().inspecting_sound_sources());
+                                let sound_source = map.get_sound_source(index);
+                                let sound_source_path = state::prepare_sound_source_inspection(inspecting_sounds, sound_source);
+
+                                self.interface.open_state_window(sound_source_path);
+                            }
+                            MarkerIdentifier::EffectSource(index) => {
+                                let inspecting_effects = self.client_state.follow_mut(client_state().inspecting_effect_sources());
+                                let effect_source = map.get_effect_source(index);
+                                let effect_source_path = state::prepare_effect_source_inspection(inspecting_effects, effect_source);
+
+                                self.interface.open_state_window(effect_source_path);
+                            }
+                            MarkerIdentifier::Particle(..) => {
+                                // TODO:
+                            }
+                            MarkerIdentifier::Entity(index) => {
+                                let entity_id = self
+                                    .client_state
+                                    .try_follow(client_state().entities().index(index as usize))
+                                    .expect("entity should exist")
+                                    .get_entity_id();
+
+                                // This can technically still be `None`, violating the API but we handle this
+                                // case in the state window.
+                                let entity_path = client_state().entities().lookup(entity_id).manually_asserted();
+
+                                self.interface.open_state_window(entity_path);
+                            }
+                            MarkerIdentifier::Shadow(..) => {
+                                // TODO:
+                            }
+                        }
+                    }
+                }
+                #[cfg(feature = "debug")]
+                InputEvent::ToggleRenderOptionsWindow => match self.interface.is_window_with_class_open(WindowClass::RenderOptions) {
+                    true => self.interface.close_window_with_class(WindowClass::RenderOptions),
+                    false => self
+                        .interface
+                        .open_window(RenderOptionsWindow::new(client_state().render_options())),
+                },
+                #[cfg(feature = "debug")]
+                InputEvent::OpenMapDataWindow => {
+                    if self.map.is_some() {
+                        let inspecting_maps = self.client_state.follow_mut(client_state().inspecting_maps());
+                        let map_data = self.map.as_ref().unwrap().get_map_data();
+                        let map_data_path = state::prepare_map_inspection(inspecting_maps, map_data);
+
+                        self.interface.open_state_window(map_data_path);
+                    }
+                }
+                #[cfg(feature = "debug")]
+                InputEvent::ToggleClientStateInspectorWindow => {
+                    match self.interface.is_window_with_class_open(WindowClass::ClientStateInspector) {
+                        true => self.interface.close_window_with_class(WindowClass::ClientStateInspector),
+                        false => self.interface.open_state_window_mut(client_state()),
+                    }
+                }
+                #[cfg(feature = "debug")]
+                InputEvent::ToggleMapsWindow => {
+                    if self.map.is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::Maps) {
+                            true => self.interface.close_window_with_class(WindowClass::Maps),
+                            false => self.interface.open_window(MapsWindow),
+                        }
+                    }
+                }
+                #[cfg(feature = "debug")]
+                InputEvent::ToggleCommandsWindow => {
+                    if self.map.is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::Commands) {
+                            true => self.interface.close_window_with_class(WindowClass::Commands),
+                            false => self.interface.open_window(CommandsWindow),
+                        }
+                    }
+                }
+                #[cfg(feature = "debug")]
+                InputEvent::ToggleThemeInspectorWindow => match self.interface.is_window_with_class_open(WindowClass::ThemeInspector) {
+                    true => self.interface.close_window_with_class(WindowClass::ThemeInspector),
+                    false => self.interface.open_window(ThemeInspectorWindow::new(
+                        client_state().theme_inspector_window(),
+                        client_state().menu_theme(),
+                        client_state().in_game_theme(),
+                        client_state().world_theme(),
+                    )),
+                },
+                #[cfg(feature = "debug")]
+                InputEvent::ToggleProfilerWindow => match self.interface.is_window_with_class_open(WindowClass::Profiler) {
+                    true => self.interface.close_window_with_class(WindowClass::Profiler),
+                    false => self.interface.open_window(ProfilerWindow::new(client_state().profiler_window())),
+                },
+                #[cfg(feature = "debug")]
+                InputEvent::TogglePacketInspectorWindow => match self.interface.is_window_with_class_open(WindowClass::PacketInspector) {
+                    true => self.interface.close_window_with_class(WindowClass::PacketInspector),
+                    false => self
+                        .interface
+                        .open_window(PacketInspectorWindow::new(client_state().packet_history())),
+                },
+                #[cfg(feature = "debug")]
+                InputEvent::ToggleCacheStatisticsWindow => match self.interface.is_window_with_class_open(WindowClass::CacheStatistics) {
+                    true => self.interface.close_window_with_class(WindowClass::CacheStatistics),
+                    false => self.interface.open_state_window(client_state().cache_statistics()),
+                },
+                #[cfg(feature = "debug")]
+                InputEvent::CameraLookAround { offset } => self.debug_camera.look_around(offset),
+                #[cfg(feature = "debug")]
+                InputEvent::CameraMoveForward => self.debug_camera.move_forward(delta_time as f32),
+                #[cfg(feature = "debug")]
+                InputEvent::CameraMoveBackward => self.debug_camera.move_backward(delta_time as f32),
+                #[cfg(feature = "debug")]
+                InputEvent::CameraMoveLeft => self.debug_camera.move_left(delta_time as f32),
+                #[cfg(feature = "debug")]
+                InputEvent::CameraMoveRight => self.debug_camera.move_right(delta_time as f32),
+                #[cfg(feature = "debug")]
+                InputEvent::CameraMoveUp => self.debug_camera.move_up(delta_time as f32),
+                #[cfg(feature = "debug")]
+                InputEvent::CameraAccelerate => self.debug_camera.accelerate(),
+                #[cfg(feature = "debug")]
+                InputEvent::CameraDecelerate => self.debug_camera.decelerate(),
+                #[cfg(feature = "debug")]
+                InputEvent::InspectFrame { measurement } => self.interface.open_window(FrameInspectorWindow::new(measurement)),
+            }
+        }
+
+        interface_has_focus
+    }
+
+    fn complete_async_loads(&mut self, client_tick: ClientTick) {
+        for completed in self.async_loader.take_completed() {
+            match completed {
+                (LoaderId::AnimationData(entity_id), LoadableResource::AnimationData(animation_data)) => {
+                    if let Some(entity) = self
+                        .client_state
+                        .follow_mut(client_state().entities())
+                        .iter_mut()
+                        .find(|entity| entity.get_entity_id() == entity_id)
+                    {
+                        entity.set_animation_data(animation_data);
+                    }
+                }
+                (LoaderId::ItemSprite(item_id), LoadableResource::ItemSprite { texture, location }) => match location {
+                    ItemLocation::Inventory => {
+                        self.client_state
+                            .follow_mut(client_state().inventory())
+                            .update_item_sprite(item_id, texture);
+                    }
+                    ItemLocation::Shop => {
+                        self.client_state
+                            .follow_mut(client_state().shop_items())
+                            .iter_mut()
+                            .filter(|item| item.item_id == item_id)
+                            .for_each(|item| item.metadata.texture = Some(texture.clone()));
+                    }
+                },
+                (LoaderId::Map(..), LoadableResource::Map { map, position }) => {
+                    match self.client_state.try_follow(this_player()).is_none() {
+                        true => {
+                            // Load of main menu map
+                            let map = self.map.insert(map);
+
+                            map.set_ambient_sound_sources(&self.audio_engine);
+                            self.audio_engine.play_background_music_track(DEFAULT_BACKGROUND_MUSIC);
+
+                            self.interface.open_window(CharacterSelectionWindow::new(
+                                client_state().character_slots(),
+                                client_state().switch_request(),
+                            ));
+
+                            self.start_camera.set_focus_point(START_CAMERA_FOCUS_POINT);
+                            self.directional_shadow_camera.set_level_bound(map.get_level_bound());
+                        }
+                        false => {
+                            // Normal map switch
+                            let map = self.map.insert(map);
+
+                            map.set_ambient_sound_sources(&self.audio_engine);
+                            self.audio_engine.play_background_music_track(map.background_music_track_name());
+
+                            if let Some(position) = position {
+                                // SAFETY
+                                // `manually_asserted` is safe because we are in
+                                // the branch where `this_player`
+                                // is not `None`.
+                                let player = self.client_state.follow_mut(this_entity().manually_asserted());
+
+                                player.set_position(map, position, client_tick);
+                                self.player_camera.set_focus_point(player.get_position());
+                            }
+
+                            self.directional_shadow_camera.set_level_bound(map.get_level_bound());
+                            let _ = self.gameplay_provider.map_loaded();
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 
     #[cfg_attr(feature = "debug", korangar_debug::profile)]
