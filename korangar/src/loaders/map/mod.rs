@@ -11,6 +11,7 @@ use korangar_collision::{AABB, KDTree, Sphere};
 use korangar_container::SimpleSlab;
 #[cfg(feature = "debug")]
 use korangar_debug::logging::Timer;
+use korangar_graphics::{BindlessSupport, Buffer, ModelVertex, TextureSet};
 use korangar_loaders::FileLoader;
 use ragnarok_bytes::{ByteReader, FromBytes};
 use ragnarok_formats::map::{GatData, GroundData, MapData, MapResources};
@@ -20,7 +21,6 @@ use wgpu::{BufferUsages, Device, Queue};
 use self::vertices::{generate_tile_vertices, ground_vertices};
 use self::water_plane::generate_water_plane;
 use super::error::LoadError;
-use crate::graphics::{BindlessSupport, Buffer, ModelVertex, TextureSet};
 use crate::loaders::{GameFileLoader, ModelLoader, TextureLoader, TextureSetBuilder, VideoLoader, split_mesh_by_texture};
 use crate::world::{Library, LightSourceKey, Lighting, Model, SubMesh, Video};
 use crate::{EffectSourceExt, LightSourceExt, Map, Object, ObjectKey, SoundSourceExt};

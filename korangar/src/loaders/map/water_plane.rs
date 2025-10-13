@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use cgmath::{Deg, Point3};
+use korangar_graphics::{Texture, WaterVertex};
 use ragnarok_formats::map::{GroundData, GroundTile, WaterSettings};
 use wgpu::{Device, Queue};
 
 use super::{GROUND_TILE_SIZE, create_index_buffer, create_vertex_buffer};
-use crate::graphics::{Texture, WaterVertex};
 use crate::loaders::{ImageType, TextureLoader};
 use crate::world::WaterPlane;
 

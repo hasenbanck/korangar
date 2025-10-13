@@ -1,10 +1,11 @@
 #[cfg(feature = "debug")]
 use korangar_debug::logging::{Colorize, Timer, print_debug};
+use korangar_graphics::{ScreenPosition, ScreenSize};
 use korangar_interface::element::StateElement;
 use rust_state::RustState;
 use serde::{Deserialize, Serialize};
 
-use crate::graphics::{Color, ScreenPosition, ScreenSize};
+use crate::Color;
 use crate::loaders::FontSize;
 
 #[derive(Serialize, Deserialize, RustState, StateElement)]

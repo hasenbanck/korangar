@@ -5,6 +5,7 @@ use hashbrown::{HashMap, HashSet};
 use korangar_collision::{AABB, multiply_matrix4_and_point3};
 #[cfg(feature = "debug")]
 use korangar_debug::logging::{Colorize, Timer, print_debug};
+use korangar_graphics::{BindlessSupport, Color, ModelVertex, NativeModelVertex, reduce_vertices};
 use korangar_loaders::FileLoader;
 use num::Zero;
 use ragnarok_bytes::{ByteReader, FromBytes};
@@ -14,7 +15,6 @@ use smallvec::SmallVec;
 
 use super::error::LoadError;
 use super::{FALLBACK_MODEL_FILE, TextureSetBuilder, TextureSetTexture, smooth_model_normals};
-use crate::graphics::{BindlessSupport, Color, ModelVertex, NativeModelVertex, reduce_vertices};
 use crate::loaders::GameFileLoader;
 use crate::world::{Model, Node, SubMesh};
 
@@ -269,7 +269,9 @@ impl ModelLoader {
 
         let centroid = Self::calculate_centroid(&node_native_vertices);
 
-        let node_vertices = NativeModelVertex::convert_to_model_vertices(node_native_vertices, Some(&node_textures));
+        let texture_mapping: Vec<i32> = node_textures.iter().map(|g| g.index).collect();
+
+        let node_vertices = NativeModelVertex::convert_to_model_vertices(node_native_vertices, Some(&texture_mapping));
         let (node_vertices, mut node_indices) = reduce_vertices(&node_vertices);
 
         // Apply the frames per second on the keyframes values.

@@ -1,20 +1,20 @@
 use std::sync::Arc;
 
 use korangar_collision::AABB;
+#[cfg(feature = "debug")]
+use korangar_graphics::DebugAabbInstruction;
+#[cfg(feature = "debug")]
+use korangar_graphics::MarkerIdentifier;
+use korangar_graphics::ModelInstruction;
 use korangar_interface::element::StateElement;
 use korangar_interface::window::StateWindow;
 use ragnarok_formats::transform::Transform;
 use rust_state::RustState;
 
-#[cfg(feature = "debug")]
-use super::MarkerIdentifier;
 use super::Model;
 use crate::Camera;
 #[cfg(feature = "debug")]
-use crate::graphics::Color;
-#[cfg(feature = "debug")]
-use crate::graphics::DebugAabbInstruction;
-use crate::graphics::ModelInstruction;
+use crate::Color;
 #[cfg(feature = "debug")]
 use crate::renderer::MarkerRenderer;
 

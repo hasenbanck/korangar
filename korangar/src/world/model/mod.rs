@@ -4,6 +4,9 @@ use std::ops::Mul;
 
 use cgmath::{EuclideanSpace, Matrix4, SquareMatrix, Vector3, Vector4, Zero};
 use korangar_collision::AABB;
+#[cfg(feature = "debug")]
+use korangar_graphics::DebugAabbInstruction;
+use korangar_graphics::ModelInstruction;
 use korangar_interface::element::StateElement;
 #[cfg(feature = "debug")]
 use ragnarok_formats::model::ModelData;
@@ -13,10 +16,7 @@ use rust_state::RustState;
 
 pub use self::node::{Node, SubMesh};
 #[cfg(feature = "debug")]
-use crate::graphics::Color;
-#[cfg(feature = "debug")]
-use crate::graphics::DebugAabbInstruction;
-use crate::graphics::ModelInstruction;
+use crate::Color;
 use crate::world::Camera;
 
 #[derive(RustState, StateElement)]
@@ -126,7 +126,7 @@ impl Model {
         let world_matrix = Self::calculate_bounding_box_matrix(&self.bounding_box, root_transform);
         instructions.push(DebugAabbInstruction {
             world: world_matrix,
-            color,
+            color: color.into(),
         });
     }
 }

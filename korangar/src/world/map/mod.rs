@@ -10,6 +10,15 @@ use korangar_collision::{AABB, Frustum, KDTree, Sphere};
 use korangar_container::{SimpleKey, SimpleSlab, create_simple_key};
 #[cfg(feature = "debug")]
 use korangar_debug::logging::Colorize;
+use korangar_graphics::{
+    Buffer, EntityInstruction, IndicatorInstruction, ModelInstruction, ModelVertex, Texture, TextureSet, TileVertex, WaterInstruction,
+    WaterVertex,
+};
+#[cfg(feature = "debug")]
+use korangar_graphics::{
+    DebugAabbInstruction, DebugCircleInstruction, DebugRectangleInstruction, MarkerIdentifier, ModelBatch, RenderOptions, ScreenPosition,
+    ScreenSize,
+};
 #[cfg(feature = "debug")]
 use option_ext::OptionExt;
 #[cfg(feature = "debug")]
@@ -27,36 +36,14 @@ pub use self::lighting::Lighting;
 use super::{Camera, Entity, Object, PointLightId, PointLightManager, ResourceSet, ResourceSetBuffer, SubMesh, Video};
 #[cfg(feature = "debug")]
 use super::{LightSourceExt, Model, PointLightSet};
-#[cfg(feature = "debug")]
-use crate::graphics::{
-    DebugAabbInstruction, DebugCircleInstruction, DebugRectangleInstruction, ModelBatch, RenderOptions, ScreenPosition, ScreenSize,
-};
-use crate::graphics::{EntityInstruction, IndicatorInstruction, ModelInstruction, Texture, TextureSet, WaterInstruction, WaterVertex};
 use crate::loaders::GAT_TILE_SIZE;
 #[cfg(feature = "debug")]
 use crate::renderer::MarkerRenderer;
 use crate::world::pathing::Traversable;
-use crate::{Buffer, Color, GameFileLoader, ModelVertex, TileVertex};
+use crate::{Color, GameFileLoader};
 
 create_simple_key!(ObjectKey, "Key to an object inside the map");
 create_simple_key!(LightSourceKey, "Key to an light source inside the map");
-
-#[cfg(feature = "debug")]
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum MarkerIdentifier {
-    Object(u32),
-    LightSource(u32),
-    SoundSource(u32),
-    EffectSource(u32),
-    Particle(u16, u16),
-    Entity(u32),
-    Shadow(u32),
-}
-
-#[cfg(feature = "debug")]
-impl MarkerIdentifier {
-    pub const SIZE: f32 = 1.5;
-}
 
 pub struct WaterPlane {
     water_opacity: f32,
@@ -461,13 +448,19 @@ impl Map {
 
             instructions.push(DebugAabbInstruction {
                 world: world_matrix,
-                color,
+                color: color.into(),
             });
         });
     }
 
     #[cfg_attr(feature = "debug", korangar_debug::profile)]
-    pub fn render_walk_indicator(&self, instruction: &mut Option<IndicatorInstruction>, color: Color, position: TilePosition) {
+    pub fn render_walk_indicator(
+        &self,
+        indicator_texture: Arc<Texture>,
+        instruction: &mut Option<IndicatorInstruction>,
+        color: Color,
+        position: TilePosition,
+    ) {
         const OFFSET: f32 = 1.0;
 
         // Since the picker buffer is always one frame behind the current scene, a map
@@ -501,19 +494,20 @@ impl Map {
                 upper_right,
                 lower_left,
                 lower_right,
-                color,
+                color: color.into(),
+                texture: indicator_texture,
             });
         }
     }
 
     #[cfg_attr(feature = "debug", korangar_debug::profile)]
     pub fn ambient_light_color(&self) -> Color {
-        self.lighting.ambient_light_color()
+        self.lighting.ambient_light_color().into()
     }
 
     #[cfg_attr(feature = "debug", korangar_debug::profile)]
     pub fn directional_light(&self) -> (Vector3<f32>, Color) {
-        self.lighting.directional_light()
+        self.lighting.directional_light().into()
     }
 
     #[cfg_attr(feature = "debug", korangar_debug::profile)]
@@ -762,7 +756,7 @@ impl Map {
                 {
                     circle_instructions.push(DebugCircleInstruction {
                         position: light_source.position,
-                        color: overlay_color,
+                        color: overlay_color.into(),
                         screen_position,
                         screen_size,
                     });
@@ -776,7 +770,7 @@ impl Map {
                 {
                     circle_instructions.push(DebugCircleInstruction {
                         position: sound_source.position,
-                        color: overlay_color,
+                        color: overlay_color.into(),
                         screen_position,
                         screen_size,
                     });
@@ -793,7 +787,7 @@ impl Map {
                 {
                     circle_instructions.push(DebugCircleInstruction {
                         position: point_light.position,
-                        color: overlay_color,
+                        color: overlay_color.into(),
                         screen_position,
                         screen_size,
                     });

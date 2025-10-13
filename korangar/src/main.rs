@@ -29,7 +29,6 @@ macro_rules! time_phase {
     }
 }
 
-mod graphics;
 mod input;
 mod state;
 #[macro_use]
@@ -60,19 +59,30 @@ use korangar_debug::logging::{Colorize, print_debug};
 use korangar_debug::profile_block;
 #[cfg(feature = "debug")]
 use korangar_debug::profiling::Profiler;
+use korangar_graphics::{
+    Capabilities, DirectionalLightInstruction, DirectionalShadowPartition, EntityInstruction, GraphicsEngine, GraphicsEngineDescriptor,
+    ModelBatch, ModelInstruction, NUMBER_OF_POINT_LIGHTS_WITH_SHADOWS, PARTITION_COUNT, PickerTarget, PointLightInstruction,
+    PointLightWithShadowInstruction, RenderInstruction, ScreenPosition, ScreenSize, ShaderCompiler, Texture, Uniforms,
+};
+#[cfg(feature = "debug")]
+use korangar_graphics::{
+    DebugAabbInstruction, DebugCircleInstruction, DebugRectangleInstruction, MarkerIdentifier, RenderOptionsPathExt, TextureSet,
+    error_handler,
+};
 use korangar_interface::Interface;
 use korangar_interface::layout::MouseButton;
 use korangar_networking::{
     DisconnectReason, HotkeyState, LoginServerLoginData, MessageColor, NetworkEvent, NetworkEventBuffer, NetworkingSystem, SellItem,
     SupportedPacketVersion,
 };
+use loaders::Color;
 #[cfg(feature = "debug")]
 use networking::{PacketHistory, PacketHistoryCallback};
 #[cfg(not(feature = "debug"))]
 use ragnarok_packets::handler::NoPacketCallback;
 use ragnarok_packets::{
-    BuyShopItemsResult, CharacterServerInformation, Direction, DisappearanceReason, HotbarSlot, SellItemsResult, SkillId, SkillType,
-    TilePosition, UnitId, WorldPosition,
+    BuyShopItemsResult, CharacterServerInformation, Direction, DisappearanceReason, EntityId, HotbarSlot, SellItemsResult, SkillId,
+    SkillType, TilePosition, UnitId, WorldPosition,
 };
 use renderer::InterfaceRenderer;
 use rust_state::{Context, ManuallyAssertExt};
@@ -99,7 +109,6 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::PhysicalKey;
 use winit::window::{Icon, Window, WindowId};
 
-use crate::graphics::*;
 use crate::input::{InputEvent, InputSystem};
 use crate::interface::cursor::{MouseCursor, MouseCursorState};
 use crate::interface::resource::{ItemSource, SkillSource};
@@ -111,8 +120,6 @@ use crate::renderer::{AlignHorizontal, EffectRenderer, GameInterfaceRenderer};
 use crate::settings::{GameSettingsPathExt, GraphicsSettings, IN_GAME_THEMES_PATH, LightingMode, MENU_THEMES_PATH, WORLD_THEMES_PATH};
 use crate::state::theme::{InterfaceTheme, InterfaceThemeType, WorldTheme};
 use crate::system::GameTimer;
-#[cfg(feature = "debug")]
-use crate::world::MarkerIdentifier;
 use crate::world::*;
 
 const CLIENT_NAME: &str = "Korangar";
@@ -121,10 +128,6 @@ const DEFAULT_MAP: &str = "geffen";
 const START_CAMERA_FOCUS_POINT: Point3<f32> = Point3::new(600.0, 0.0, 240.0);
 const DEFAULT_BACKGROUND_MUSIC: Option<&str> = Some("bgm\\01.mp3");
 const MAIN_MENU_CLICK_SOUND_EFFECT: &str = "버튼소리.wav";
-// TODO: The number of point lights that can cast shadows should be configurable
-// through the graphics settings. For now I just chose an arbitrary smaller
-// number that should be playable on most devices.
-const NUMBER_OF_POINT_LIGHTS_WITH_SHADOWS: usize = 6;
 
 const INITIAL_SCREEN_SIZE: ScreenSize = ScreenSize {
     width: 1280.0,
@@ -422,6 +425,7 @@ struct Client {
     #[cfg(feature = "debug")]
     tile_texture_set: Arc<TextureSet>,
 
+    walk_indicator_texture: Arc<Texture>,
     main_menu_click_sound_effect: SoundEffectKey,
 
     #[cfg(feature = "debug")]
@@ -639,7 +643,6 @@ impl Client {
                 device: device.clone(),
                 queue: queue.clone(),
                 shader_compiler,
-                texture_loader: texture_loader.clone(),
                 picker_value,
                 directional_shadow_partitions: directional_shadow_partitions.clone(),
             });
@@ -719,6 +722,8 @@ impl Client {
             ]);
             #[cfg(feature = "debug")]
             let tile_texture_set = Arc::new(tile_texture_set);
+
+            let walk_indicator_texture = texture_loader.get_or_load("grid.tga", ImageType::Color).unwrap();
 
             let main_menu_click_sound_effect = audio_engine.load(MAIN_MENU_CLICK_SOUND_EFFECT);
         });
@@ -826,6 +831,7 @@ impl Client {
             pathing_texture_set,
             #[cfg(feature = "debug")]
             tile_texture_set,
+            walk_indicator_texture,
             main_menu_click_sound_effect,
             networking_system,
             audio_engine,
@@ -922,9 +928,9 @@ impl Client {
                 .client_state
                 .follow_mut(client_state().entities())
                 .iter_mut()
-                .find(|entity| entity.get_entity_id() == entity_id)
+                .find(|entity| entity.get_entity_id() == EntityId(entity_id))
             && entity.are_details_unavailable()
-            && self.networking_system.entity_details(entity_id).is_ok()
+            && self.networking_system.entity_details(EntityId(entity_id)).is_ok()
         {
             entity.set_details_requested();
         }
@@ -1665,7 +1671,7 @@ impl Client {
                                     Vector3::new(0.0, 0.0, 0.0),
                                     PointLightId::new(unit_id as u32),
                                     Vector3::new(0.0, 6.0, 0.0),
-                                    Color::rgb_u8(83, 220, 108),
+                                    Color::rgb_u8(83, 220, 108).into(),
                                     40.0,
                                     false,
                                 )),
@@ -2141,7 +2147,9 @@ impl Client {
                             SkillType::Passive => {}
                             SkillType::Attack => {
                                 if let PickerTarget::Entity(entity_id) = input_report.mouse_target {
-                                    let _ = self.networking_system.cast_skill(skill.skill_id, skill.skill_level, entity_id);
+                                    let _ = self
+                                        .networking_system
+                                        .cast_skill(skill.skill_id, skill.skill_level, EntityId(entity_id));
                                 }
                             }
                             SkillType::Ground | SkillType::Trap => {
@@ -2169,7 +2177,9 @@ impl Client {
                             },
                             SkillType::Support => {
                                 if let PickerTarget::Entity(entity_id) = input_report.mouse_target {
-                                    let _ = self.networking_system.cast_skill(skill.skill_id, skill.skill_level, entity_id);
+                                    let _ = self
+                                        .networking_system
+                                        .cast_skill(skill.skill_id, skill.skill_level, EntityId(entity_id));
                                 } else {
                                     let _ = self.networking_system.cast_skill(
                                         skill.skill_id,
@@ -2976,7 +2986,7 @@ impl Client {
                             .client_state
                             .follow(client_state().entities())
                             .iter()
-                            .find(|entity| entity.get_entity_id() == entity_id)
+                            .find(|entity| entity.get_entity_id() == EntityId(entity_id))
                             .map(|entity| match entity.get_entity_type() {
                                 EntityType::Npc => MouseCursorState::Dialog,
                                 EntityType::Warp => MouseCursorState::Warp,
@@ -2997,9 +3007,9 @@ impl Client {
                             if mouse_button == MouseButton::Left {
                                 match input_report.mouse_target {
                                     PickerTarget::Nothing => {}
-                                    PickerTarget::Entity(entity_id) => {
-                                        self.input_event_buffer.push(InputEvent::PlayerInteract { entity_id })
-                                    }
+                                    PickerTarget::Entity(entity_id) => self.input_event_buffer.push(InputEvent::PlayerInteract {
+                                        entity_id: EntityId(entity_id),
+                                    }),
                                     PickerTarget::Tile { x, y } => {
                                         let destination = TilePosition { x, y };
 
@@ -3083,7 +3093,12 @@ impl Client {
                             && (is_mouse_mode_default || last_walking_destination.is_some())
                         {
                             #[cfg_attr(feature = "debug", korangar_debug::debug_condition(render_options.show_indicators))]
-                            map.render_walk_indicator(&mut indicator_instruction, walk_indicator_color, TilePosition { x, y });
+                            map.render_walk_indicator(
+                                self.walk_indicator_texture.clone(),
+                                &mut indicator_instruction,
+                                walk_indicator_color.into(),
+                                TilePosition { x, y },
+                            );
                         }
                     }
                     PickerTarget::Entity(entity_id) => {
@@ -3092,12 +3107,12 @@ impl Client {
                                 .client_state
                                 .follow(client_state().entities())
                                 .iter()
-                                .find(|entity| entity.get_entity_id() == entity_id);
+                                .find(|entity| entity.get_entity_id() == EntityId(entity_id));
 
                             if let Some(entity) = entity {
                                 // Since the buffered attack entity will render its status anyway,
                                 // we make sure not to render it here again if it's the same.
-                                if !buffered_attack_entity.is_some_and(|id| id == entity_id) {
+                                if !buffered_attack_entity.is_some_and(|id| id == EntityId(entity_id)) {
                                     entity.render_status(
                                         &self.middle_interface_renderer,
                                         current_camera,
@@ -3117,7 +3132,7 @@ impl Client {
                                     self.middle_interface_renderer.render_text(
                                         name,
                                         input_report.mouse_position + offset,
-                                        Color::WHITE,
+                                        Color::WHITE.into(),
                                         FontSize(16.0),
                                         AlignHorizontal::Mid,
                                     );
@@ -3192,7 +3207,7 @@ impl Client {
                     projection_matrix,
                     camera_position,
                     animation_timer_ms,
-                    ambient_light_color,
+                    ambient_light_color: ambient_light_color.into(),
                     enhanced_lighting: lighting_mode == LightingMode::Enhanced,
                     shadow_method,
                     shadow_detail,
@@ -3207,7 +3222,7 @@ impl Client {
                 directional_light: DirectionalLightInstruction {
                     view_projection_matrix: directional_light_view_projection_matrix,
                     direction: directional_light_direction,
-                    color: directional_light_color,
+                    color: directional_light_color.into(),
                 },
                 directional_light_partitions: &self.directional_shadow_camera.get_partition_instructions(),
                 point_light: &self.point_light_instructions,
@@ -3381,34 +3396,36 @@ impl ApplicationHandler for Client {
         // Android devices need to drop the surface on suspend, so we might need to
         // re-create it.
         if let Some(window) = self.window.as_ref() {
-            let path = client_state().graphics_settings();
-            let graphics_settings = self.client_state.follow(path);
+            time_phase!("Resume graphics engine", {
+                let path = client_state().graphics_settings();
+                let graphics_settings = self.client_state.follow(path);
 
-            self.graphics_engine.on_resume(
-                window.clone(),
-                graphics_settings.triple_buffering,
-                graphics_settings.vsync,
-                graphics_settings.limit_framerate,
-                graphics_settings.shadow_resolution,
-                graphics_settings.texture_filtering,
-                graphics_settings.msaa,
-                graphics_settings.ssaa,
-                graphics_settings.screen_space_anti_aliasing,
-                graphics_settings.high_quality_interface,
-            );
-
-            // Update graphics settings capabilities based on the new surface.
-            // We don't expect the capabilities to change on consecutive calls but we
-            // can't get the present mode info when initializing the client, so
-            // we do it here instead.
-            self.client_state
-                .follow_mut(client_state().graphics_settings_capabilities())
-                .update(
-                    self.graphics_engine.get_supported_msaa(),
-                    self.graphics_engine.get_present_mode_info(),
+                self.graphics_engine.on_resume(
+                    window.clone(),
+                    graphics_settings.triple_buffering,
+                    graphics_settings.vsync,
+                    graphics_settings.limit_framerate,
+                    graphics_settings.shadow_resolution,
+                    graphics_settings.texture_filtering,
+                    graphics_settings.msaa,
+                    graphics_settings.ssaa,
+                    graphics_settings.screen_space_anti_aliasing,
+                    graphics_settings.high_quality_interface,
                 );
 
-            window.set_visible(true);
+                // Update graphics settings capabilities based on the new surface.
+                // We don't expect the capabilities to change on consecutive calls, but we
+                // can't get the present mode info when initializing the client, so
+                // we do it here instead.
+                self.client_state
+                    .follow_mut(client_state().graphics_settings_capabilities())
+                    .update(
+                        self.graphics_engine.get_supported_msaa(),
+                        self.graphics_engine.get_present_mode_info(),
+                    );
+
+                window.set_visible(true);
+            });
         }
 
         if *self.client_state.follow(client_state().audio_settings().mute_on_focus_loss()) {

@@ -3,6 +3,7 @@ use std::ops::Mul;
 use cgmath::{Array, Vector2};
 use korangar_audio::SoundEffectKey;
 use korangar_container::Cacheable;
+use korangar_graphics::{ScreenClip, ScreenPosition, ScreenSize};
 use korangar_interface::element::StateElement;
 use ragnarok_formats::action::Action;
 #[cfg(feature = "debug")]
@@ -10,7 +11,7 @@ use ragnarok_formats::action::ActionsData;
 use ragnarok_packets::ClientTick;
 use rust_state::RustState;
 
-use crate::graphics::{Color, ScreenClip, ScreenPosition, ScreenSize};
+use crate::Color;
 use crate::loaders::Sprite;
 use crate::renderer::SpriteRenderer;
 

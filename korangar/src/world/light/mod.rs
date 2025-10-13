@@ -2,15 +2,15 @@ use std::sync::Arc;
 
 use cgmath::{Matrix4, Point3, SquareMatrix, Vector2, Vector3, Zero};
 use korangar_collision::Sphere;
+#[cfg(feature = "debug")]
+use korangar_graphics::MarkerIdentifier;
+#[cfg(feature = "debug")]
+use korangar_graphics::RenderOptions;
+use korangar_graphics::{Buffer, ModelInstruction, ModelVertex, PointLightInstruction, PointLightWithShadowInstruction, TextureSet};
 use ragnarok_formats::map::LightSource;
 
 #[cfg(feature = "debug")]
-use crate::graphics::RenderOptions;
-use crate::graphics::{Buffer, ModelInstruction, ModelVertex, PointLightInstruction, PointLightWithShadowInstruction, TextureSet};
-#[cfg(feature = "debug")]
 use crate::renderer::MarkerRenderer;
-#[cfg(feature = "debug")]
-use crate::world::MarkerIdentifier;
 use crate::world::{Map, ObjectKey, PointShadowCamera, ResourceSetBuffer};
 use crate::{Camera, Color, NUMBER_OF_POINT_LIGHTS_WITH_SHADOWS};
 
@@ -56,7 +56,7 @@ impl PointLight {
     pub fn render(&self, instructions: &mut Vec<PointLightInstruction>) {
         instructions.push(PointLightInstruction {
             position: self.position,
-            color: self.color,
+            color: self.color.into(),
             range: self.range,
         });
     }
@@ -78,7 +78,7 @@ impl PointLight {
             view_projection_matrices,
             view_matrices,
             position: self.position,
-            color: self.color,
+            color: self.color.into(),
             range: self.range,
             model_texture_set,
             model_vertex_buffer,

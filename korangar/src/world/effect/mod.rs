@@ -3,16 +3,17 @@ use std::sync::Arc;
 use cgmath::{Point3, Rad, Vector2, Vector3};
 use korangar_collision::{Frustum, Sphere};
 use korangar_container::Cacheable;
+#[cfg(feature = "debug")]
+use korangar_graphics::MarkerIdentifier;
+use korangar_graphics::Texture;
 use ragnarok_formats::map::EffectSource;
 use ragnarok_packets::EntityId;
 use wgpu::BlendFactor;
 
-use crate::graphics::{Color, Texture};
+use crate::Color;
 use crate::renderer::EffectRenderer;
 #[cfg(feature = "debug")]
 use crate::renderer::MarkerRenderer;
-#[cfg(feature = "debug")]
-use crate::world::MarkerIdentifier;
 use crate::world::{Camera, PointLightId, PointLightManager};
 
 pub trait EffectBase {

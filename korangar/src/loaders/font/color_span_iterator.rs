@@ -1,6 +1,6 @@
 use cosmic_text::Attrs;
 
-use crate::graphics::Color;
+use crate::Color;
 
 const RESET_COLOR_CODE: &str = "000000";
 const HIGHLIGHT_COLOR_CODE: &str = "000001";

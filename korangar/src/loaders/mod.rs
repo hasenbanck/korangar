@@ -20,6 +20,7 @@ mod video;
 pub use self::action::*;
 pub use self::animation::*;
 pub use self::r#async::*;
+pub use self::color::*;
 pub use self::effect::EffectLoader;
 pub use self::font::{FontLoader, FontSize, GlyphInstruction, OverflowBehavior, Scaling};
 pub use self::gamefile::*;

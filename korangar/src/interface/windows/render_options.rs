@@ -1,9 +1,9 @@
 use std::num::NonZeroU32;
 
+use korangar_graphics::{PARTITION_COUNT, RenderOptions, RenderOptionsPathExt};
 use korangar_interface::window::{CustomWindow, Window};
 use rust_state::Path;
 
-use crate::graphics::{PARTITION_COUNT, RenderOptions, RenderOptionsPathExt};
 use crate::interface::windows::WindowClass;
 use crate::state::ClientState;
 use crate::state::theme::InterfaceThemeType;

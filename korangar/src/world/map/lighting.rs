@@ -3,7 +3,7 @@ use korangar_interface::element::StateElement;
 use ragnarok_formats::map::LightSettings;
 use rust_state::RustState;
 
-use crate::graphics::Color;
+use crate::Color;
 
 #[derive(RustState, StateElement)]
 pub struct Lighting {

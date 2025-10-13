@@ -2,12 +2,12 @@ use std::collections::HashMap;
 
 #[cfg(feature = "debug")]
 use korangar_debug::logging::{Colorize, print_debug};
+use korangar_graphics::ScreenSize;
 use korangar_interface::window::Anchor;
 use ron::ser::PrettyConfig;
 use serde::{Deserialize, Serialize};
 
 use super::WindowClass;
-use crate::graphics::ScreenSize;
 use crate::state::ClientState;
 
 #[derive(Serialize, Deserialize)]

@@ -1,10 +1,9 @@
 use cgmath::{Point3, Vector2};
+use korangar_graphics::{ModelVertex, NativeModelVertex, PickerTarget, TileVertex, reduce_vertices};
 use ragnarok_formats::map::{GatData, GroundData, GroundTile, Surface, SurfaceType};
 use smallvec::smallvec_inline;
 
-#[cfg(feature = "debug")]
-use crate::graphics::Color;
-use crate::graphics::{ModelVertex, NativeModelVertex, PickerTarget, TileVertex, reduce_vertices};
+use crate::Color;
 use crate::loaders::map::{GAT_TILE_SIZE, GROUND_TILE_SIZE};
 use crate::loaders::{TextureSetBuilder, TextureSetTexture, smooth_ground_normals};
 
@@ -90,16 +89,16 @@ pub fn ground_vertices(
 
             let neighbor_color = |x_offset: usize, y_offset: usize| {
                 let Some(neighbor_tile) = ground_tiles.get(tile_x + x_offset + (tile_y + y_offset) * width) else {
-                    return ground_surface.color.into();
+                    return Color::from(ground_surface.color).into();
                 };
 
                 // FIX: It is almost certainly incorrect to use the top face in all cases.
                 let neighbor_surface_index = tile_surface_index(neighbor_tile, SurfaceType::Top);
                 let Some(neighbor_surface) = ground_data.surfaces.get(neighbor_surface_index as usize) else {
-                    return ground_surface.color.into();
+                    return Color::from(ground_surface.color).into();
                 };
 
-                neighbor_surface.color.into()
+                Color::from(neighbor_surface.color).into()
             };
 
             let color_east = neighbor_color(1, 0);
@@ -112,7 +111,7 @@ pub fn ground_vertices(
                     first_normal,
                     first_texture_coordinates,
                     ground_surface.texture_index as i32,
-                    ground_surface.color.into(),
+                    Color::from(ground_surface.color).into(),
                     0.0,
                     smallvec_inline![0;3],
                 ));
@@ -170,7 +169,9 @@ pub fn ground_vertices(
 
     smooth_ground_normals(&mut ground_vertices);
 
-    let vertices = NativeModelVertex::convert_to_model_vertices(ground_vertices, Some(&ground_textures));
+    let texture_mapping: Vec<i32> = ground_textures.iter().map(|g| g.index).collect();
+
+    let vertices = NativeModelVertex::convert_to_model_vertices(ground_vertices, Some(&texture_mapping));
 
     let (reduced_vertices, indices) = reduce_vertices(&vertices);
 
@@ -272,7 +273,7 @@ pub fn generate_tile_vertices(gat_data: &mut GatData) -> (Vec<ModelVertex>, Vec<
                         first_position,
                         first_normal,
                         first_texture_coordinates,
-                        Color::WHITE,
+                        Color::WHITE.into(),
                         tile_type_index as i32,
                         0.0,
                     ));
@@ -280,7 +281,7 @@ pub fn generate_tile_vertices(gat_data: &mut GatData) -> (Vec<ModelVertex>, Vec<
                         second_position,
                         first_normal,
                         second_texture_coordinates,
-                        Color::WHITE,
+                        Color::WHITE.into(),
                         tile_type_index as i32,
                         0.0,
                     ));
@@ -288,7 +289,7 @@ pub fn generate_tile_vertices(gat_data: &mut GatData) -> (Vec<ModelVertex>, Vec<
                         third_position,
                         first_normal,
                         third_texture_coordinates,
-                        Color::WHITE,
+                        Color::WHITE.into(),
                         tile_type_index as i32,
                         0.0,
                     ));
@@ -299,7 +300,7 @@ pub fn generate_tile_vertices(gat_data: &mut GatData) -> (Vec<ModelVertex>, Vec<
                         third_position,
                         second_normal,
                         third_texture_coordinates,
-                        Color::WHITE,
+                        Color::WHITE.into(),
                         tile_type_index as i32,
                         0.0,
                     ));
@@ -307,7 +308,7 @@ pub fn generate_tile_vertices(gat_data: &mut GatData) -> (Vec<ModelVertex>, Vec<
                         second_position,
                         second_normal,
                         second_texture_coordinates,
-                        Color::WHITE,
+                        Color::WHITE.into(),
                         tile_type_index as i32,
                         0.0,
                     ));
@@ -315,7 +316,7 @@ pub fn generate_tile_vertices(gat_data: &mut GatData) -> (Vec<ModelVertex>, Vec<
                         fourth_position,
                         second_normal,
                         fourth_texture_coordinates,
-                        Color::WHITE,
+                        Color::WHITE.into(),
                         tile_type_index as i32,
                         0.0,
                     ));

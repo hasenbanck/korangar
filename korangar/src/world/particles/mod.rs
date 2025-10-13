@@ -4,15 +4,15 @@ use std::sync::Arc;
 use cgmath::{Point3, Vector3};
 #[cfg(feature = "debug")]
 use korangar_debug::logging::Colorize;
+use korangar_graphics::{ScreenClip, ScreenPosition, ScreenSize, Texture};
 use korangar_interface::application::Clip;
 use ragnarok_packets::{EntityId, QuestColor, QuestEffectPacket};
 use rand_aes::tls::rand_f32;
 
-use crate::graphics::{Color, ScreenClip, ScreenPosition, ScreenSize, Texture};
 use crate::loaders::{FontSize, ImageType, Scaling, TextureLoader};
 use crate::renderer::{GameInterfaceRenderer, SpriteRenderer};
 use crate::world::Camera;
-use crate::{Entity, Map};
+use crate::{Color, Entity, Map};
 
 pub trait Particle {
     fn update(&mut self, delta_time: f32) -> bool;

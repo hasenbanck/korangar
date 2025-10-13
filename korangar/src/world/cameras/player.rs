@@ -1,7 +1,7 @@
 use cgmath::{Array, Deg, InnerSpace, Matrix4, Point3, Quaternion, Rad, Rotation, Rotation3, Vector2, Vector3, Zero};
+use korangar_graphics::perspective_reverse_lh;
 
 use super::{Camera, MAXIMUM_CAMERA_DISTANCE, MINIMUM_CAMERA_DISTANCE, SmoothedValue};
-use crate::graphics::perspective_reverse_lh;
 
 const ZOOM_SPEED: f32 = 1.0;
 const ROTATION_SPEED: f32 = 0.005;

@@ -16,6 +16,7 @@ mod character_slot_preview {
     use std::cell::{Cell, UnsafeCell};
     use std::fmt::Display;
 
+    use korangar_graphics::{CornerDiameter, ScreenPosition, ScreenSize, ShadowPadding};
     use korangar_interface::element::store::{ElementStore, ElementStoreMut};
     use korangar_interface::element::{BaseLayoutInfo, Element};
     use korangar_interface::event::{ClickHandler, EventQueue};
@@ -25,7 +26,7 @@ mod character_slot_preview {
     use ragnarok_packets::{CharacterInformation, CharacterInformationPathExt};
     use rust_state::{Context, ManuallyAssertExt, Path};
 
-    use crate::graphics::{Color, CornerDiameter, ScreenPosition, ScreenSize, ShadowPadding};
+    use crate::Color;
     use crate::input::InputEvent;
     use crate::loaders::{FontSize, OverflowBehavior};
     use crate::state::ClientState;

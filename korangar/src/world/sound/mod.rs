@@ -1,12 +1,12 @@
 use cgmath::Vector3;
+#[cfg(feature = "debug")]
+use korangar_graphics::MarkerIdentifier;
 use ragnarok_formats::map::SoundSource;
 
 #[cfg(feature = "debug")]
 use crate::renderer::MarkerRenderer;
 #[cfg(feature = "debug")]
 use crate::world::Camera;
-#[cfg(feature = "debug")]
-use crate::world::MarkerIdentifier;
 
 pub trait SoundSourceExt {
     fn offset(&mut self, offset: Vector3<f32>);

@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::time::Duration;
 
 use korangar_debug::profiling::{FrameMeasurement, Measurement};
+use korangar_graphics::{CornerDiameter, ShadowPadding};
 use korangar_interface::element::store::{ElementStore, ElementStoreMut};
 use korangar_interface::element::{BaseLayoutInfo, Element};
 use korangar_interface::event::{EventQueue, ScrollHandler};
@@ -12,11 +13,10 @@ use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};
 use korangar_interface::window::{CustomWindow, Window};
 use rust_state::Context;
 
-use crate::graphics::{Color, CornerDiameter, ShadowPadding};
 use crate::interface::windows::profiler::color_lookup::ColorLookup;
 use crate::state::ClientState;
 use crate::state::theme::InterfaceThemeType;
-use crate::{FontSize, OverflowBehavior};
+use crate::{Color, FontSize, OverflowBehavior};
 
 /// ZST for the tooltip ID.
 struct FrameInspectorTooltip;

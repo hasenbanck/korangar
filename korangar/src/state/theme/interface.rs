@@ -1,5 +1,6 @@
 #[cfg(feature = "debug")]
 use korangar_debug::logging::{Colorize, Timer, print_debug};
+use korangar_graphics::{CornerDiameter, ScreenSize, ShadowPadding};
 use korangar_interface::components::button::ButtonTheme;
 use korangar_interface::components::collapsable::CollapsableTheme;
 use korangar_interface::components::drop_down::DropDownTheme;
@@ -14,7 +15,7 @@ use korangar_interface::window::{StateWindow, WindowTheme};
 use rust_state::RustState;
 use serde::{Deserialize, Serialize};
 
-use crate::graphics::{Color, CornerDiameter, ScreenSize, ShadowPadding};
+use crate::Color;
 use crate::loaders::{FontSize, OverflowBehavior};
 use crate::settings::{IN_GAME_THEMES_PATH, MENU_THEMES_PATH};
 use crate::state::ClientState;

@@ -14,13 +14,14 @@ pub use effect::EffectRenderer;
 pub use game_interface::{AlignHorizontal, GameInterfaceRenderer};
 pub use interface::{InterfaceRenderer, LayoutExt};
 #[cfg(feature = "debug")]
+use korangar_graphics::MarkerIdentifier;
+use korangar_graphics::{ScreenClip, ScreenPosition, ScreenSize, Texture};
+#[cfg(feature = "debug")]
 pub use marker::DebugMarkerRenderer;
 
-use crate::graphics::{Color, ScreenClip, ScreenPosition, ScreenSize, Texture};
+use crate::Color;
 #[cfg(feature = "debug")]
 use crate::world::Camera;
-#[cfg(feature = "debug")]
-use crate::world::MarkerIdentifier;
 
 /// Trait to render sprite data.
 pub trait SpriteRenderer {

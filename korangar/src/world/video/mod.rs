@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
+use korangar_graphics::Texture;
 use korangar_video::{Decoder, Error, Picture};
 use wgpu::{Extent3d, Queue, TexelCopyBufferLayout, TexelCopyTextureInfo};
-
-use crate::graphics::Texture;
 
 pub struct Video {
     width: u32,

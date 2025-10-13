@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
 use cgmath::{Matrix2, Point3, Rad, Vector2};
+use korangar_graphics::{EffectInstruction, ScreenPosition, ScreenSize, Texture};
 use korangar_interface::application::Position;
 use wgpu::BlendFactor;
 
-use crate::graphics::{Color, EffectInstruction, ScreenPosition, ScreenSize, Texture};
+use crate::Color;
 use crate::world::Camera;
 
 pub struct EffectRenderer {
@@ -74,7 +75,7 @@ impl EffectRenderer {
             texture_bottom_left: texture_coordinates[3],
             texture_top_right: texture_coordinates[1],
             texture_bottom_right: texture_coordinates[0],
-            color,
+            color: color.into(),
             source_blend_factor,
             destination_blend_factor,
             texture,

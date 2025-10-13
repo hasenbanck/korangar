@@ -2,6 +2,8 @@
 use cgmath::Vector2;
 #[cfg(feature = "debug")]
 use korangar_debug::profiling::FrameMeasurement;
+#[cfg(feature = "debug")]
+use korangar_graphics::MarkerIdentifier;
 use korangar_interface::event::{ClickHandler, Event, EventQueue};
 use korangar_networking::{InventoryItem, ShopItem};
 use ragnarok_packets::{
@@ -14,8 +16,6 @@ use crate::interface::resource::{ItemSource, SkillSource};
 use crate::inventory::Skill;
 use crate::loaders::ServiceId;
 use crate::state::ClientState;
-#[cfg(feature = "debug")]
-use crate::world::MarkerIdentifier;
 use crate::world::ResourceMetadata;
 
 /// An event triggered by the user through mouse or keyboard input.

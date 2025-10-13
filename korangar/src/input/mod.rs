@@ -6,6 +6,7 @@ use std::mem::variant_count;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use korangar_graphics::{PickerTarget, ScreenPosition, ScreenSize};
 use ragnarok_packets::{ClientTick, HotbarSlot};
 use winit::dpi::PhysicalPosition;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta};
@@ -14,7 +15,6 @@ use winit::keyboard::KeyCode;
 pub use self::event::InputEvent;
 pub use self::key::Key;
 pub use self::mode::{Grabbed, MouseInputMode, MouseModeExt};
-use crate::graphics::{PickerTarget, ScreenPosition, ScreenSize};
 
 const MOUSE_SCOLL_MULTIPLIER: f32 = 30.0;
 const KEY_COUNT: usize = variant_count::<KeyCode>();

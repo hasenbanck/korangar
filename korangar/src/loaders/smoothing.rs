@@ -2,8 +2,7 @@ use std::hash::{Hash, Hasher};
 
 use cgmath::{InnerSpace, Point3, Vector3, Zero};
 use hashbrown::HashMap;
-
-use crate::graphics::NativeModelVertex;
+use korangar_graphics::NativeModelVertex;
 
 #[derive(Debug, Copy, Clone)]
 #[repr(transparent)]

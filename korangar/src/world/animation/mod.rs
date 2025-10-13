@@ -2,13 +2,14 @@ use std::sync::Arc;
 
 use cgmath::{Array, Matrix4, Point3, Transform, Vector2, Vector3, Zero};
 use korangar_container::Cacheable;
+#[cfg(feature = "debug")]
+use korangar_graphics::DebugRectangleInstruction;
+use korangar_graphics::EntityInstruction;
 use korangar_interface::element::StateElement;
 use ragnarok_packets::{ClientTick, Direction, EntityId};
 use rust_state::RustState;
 
-#[cfg(feature = "debug")]
-use crate::graphics::DebugRectangleInstruction;
-use crate::graphics::{Color, EntityInstruction};
+use crate::Color;
 use crate::loaders::Sprite;
 use crate::world::{ActionEvent, Actions, Camera, EntityType};
 
@@ -323,9 +324,9 @@ impl AnimationData {
                 depth_offset,
                 extra_depth_offset: 0.005 * index as f32,
                 curvature,
-                color,
+                color: color.into(),
                 mirror: frame_part.mirror,
-                entity_id,
+                entity_id: entity_id.0,
                 add_to_picker,
                 texture: texture.clone(),
                 distance,
@@ -348,21 +349,21 @@ impl AnimationData {
         let world_matrix = self.calculate_world_matrix(camera, frame, entity_position);
         instructions.push(DebugRectangleInstruction {
             world: world_matrix,
-            color: color_external,
+            color: color_external.into(),
         });
         instructions.push(DebugRectangleInstruction {
             world: world_matrix * frame.horizontal_matrix,
-            color: color_external,
+            color: color_external.into(),
         });
         instructions.push(DebugRectangleInstruction {
             world: world_matrix * frame.vertical_matrix,
-            color: color_external,
+            color: color_external.into(),
         });
 
         for frame_part in frame.frame_parts.iter() {
             instructions.push(DebugRectangleInstruction {
                 world: world_matrix * frame_part.affine_matrix,
-                color: color_internal,
+                color: color_internal.into(),
             });
         }
     }

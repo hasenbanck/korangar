@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 
 use korangar_debug::profiling::Profiler;
+use korangar_graphics::{CornerDiameter, ShadowPadding};
 use korangar_interface::components::drop_down::DropDownItem;
 use korangar_interface::element::store::{ElementStore, ElementStoreMut};
 use korangar_interface::element::{BaseLayoutInfo, Element, StateElement};
@@ -11,7 +12,7 @@ use korangar_interface::prelude::EventQueue;
 use korangar_interface::window::{CustomWindow, Window};
 use rust_state::{Context, Path, RustState};
 
-use crate::graphics::{Color, CornerDiameter, ShadowPadding};
+use crate::Color;
 use crate::input::InputEvent;
 use crate::interface::windows::WindowClass;
 use crate::state::ClientState;
@@ -22,7 +23,7 @@ pub mod color_lookup {
     use std::collections::BTreeMap;
     use std::hash::{DefaultHasher, Hash, Hasher};
 
-    use crate::graphics::Color;
+    use crate::Color;
 
     const GOLDEN_RATIO_CONJUGATE: f64 = 0.618034;
 

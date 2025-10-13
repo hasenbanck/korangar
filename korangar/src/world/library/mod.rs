@@ -2,12 +2,13 @@ use std::sync::Arc;
 
 use encoding_rs::EUC_KR;
 use hashbrown::HashMap;
+use korangar_graphics::Texture;
 use korangar_loaders::FileLoader;
 use korangar_networking::{InventoryItem, NoMetadata, ShopItem};
 use mlua::{Lua, Value};
 use ragnarok_packets::ItemId;
 
-use crate::graphics::{Color, Texture};
+use crate::Color;
 use crate::loaders::{AsyncLoader, GameFileLoader, ImageType, ItemLocation};
 
 #[derive(Debug, Clone)]

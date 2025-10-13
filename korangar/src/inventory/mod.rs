@@ -3,6 +3,7 @@ mod skills;
 
 use std::sync::Arc;
 
+use korangar_graphics::Texture;
 use korangar_interface::element::StateElement;
 use korangar_networking::{InventoryItem, InventoryItemDetails, NoMetadata};
 use ragnarok_packets::{EquipPosition, InventoryIndex, ItemId};
@@ -10,7 +11,6 @@ use rust_state::RustState;
 
 pub use self::hotbar::{Hotbar, HotbarPathExt};
 pub use self::skills::{Skill, SkillTree, SkillTreePathExt};
-use crate::graphics::Texture;
 use crate::loaders::AsyncLoader;
 use crate::world::{Library, ResourceMetadata};
 

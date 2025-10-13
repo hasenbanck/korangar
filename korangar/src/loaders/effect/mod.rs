@@ -15,7 +15,7 @@ use wgpu::BlendFactor;
 
 use super::error::LoadError;
 use super::{ImageType, TextureLoader};
-use crate::graphics::Color;
+use crate::Color;
 use crate::loaders::GameFileLoader;
 use crate::world::{AnimationType, Effect, Frame, FrameType, Layer, MultiTexturePresent};
 

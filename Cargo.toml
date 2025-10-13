@@ -28,6 +28,7 @@ korangar-audio = { path = "korangar-audio" }
 korangar-collision = { path = "korangar-collision" }
 korangar-container = { path = "korangar-container" }
 korangar-debug = { path = "korangar-debug" }
+korangar-graphics = { path = "korangar-graphics" }
 korangar-interface = { path = "korangar-interface" }
 korangar-loaders = { path = "korangar-loaders" }
 korangar-networking = { path = "korangar-networking" }
@@ -102,13 +103,16 @@ opt-level = 3
 [profile.dev.package.korangar-debug]
 opt-level = 3
 
+[profile.dev.package.korangar-graphics]
+opt-level = 3
+
 [profile.dev.package.korangar-interface]
 opt-level = 3
 
-[profile.dev.package.korangar-networking]
+[profile.dev.package.korangar-loaders]
 opt-level = 3
 
-[profile.dev.package.korangar-loaders]
+[profile.dev.package.korangar-networking]
 opt-level = 3
 
 [profile.dev.package.korangar-video]

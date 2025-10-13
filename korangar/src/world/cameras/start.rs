@@ -1,7 +1,7 @@
 use cgmath::{Array, Deg, InnerSpace, Matrix4, Point3, Quaternion, Rad, Rotation, Rotation3, Vector2, Vector3, Zero};
+use korangar_graphics::perspective_reverse_lh;
 
 use super::Camera;
-use crate::graphics::perspective_reverse_lh;
 
 const DEFAULT_VIEW_ANGLE: f32 = 180_f32.to_radians();
 const DEFAULT_VIEW_DISTANCE: f32 = 150.0;

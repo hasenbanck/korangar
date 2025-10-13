@@ -1,3 +1,4 @@
+use korangar_graphics::{CornerDiameter, ShadowPadding};
 use korangar_interface::MouseMode;
 use korangar_interface::element::store::{ElementStore, ElementStoreMut};
 use korangar_interface::element::{BaseLayoutInfo, Element};
@@ -8,7 +9,7 @@ use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};
 use korangar_networking::{InventoryItem, InventoryItemDetails};
 use rust_state::{Context, Path};
 
-use crate::graphics::{Color, CornerDiameter, ShadowPadding};
+use crate::Color;
 use crate::input::{InputEvent, MouseInputMode};
 use crate::interface::resource::ItemSource;
 use crate::loaders::{FontSize, OverflowBehavior};

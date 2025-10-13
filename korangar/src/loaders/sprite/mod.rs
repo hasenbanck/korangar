@@ -7,6 +7,7 @@ use korangar_container::CacheStatistics;
 use korangar_container::{Cacheable, SimpleCache};
 #[cfg(feature = "debug")]
 use korangar_debug::logging::{Colorize, Timer, print_debug};
+use korangar_graphics::Texture;
 use korangar_interface::element::StateElement;
 use korangar_loaders::FileLoader;
 use ragnarok_bytes::{ByteReader, FromBytes};
@@ -15,10 +16,8 @@ use ragnarok_formats::version::InternalVersion;
 use rust_state::RustState;
 
 use super::{FALLBACK_SPRITE_FILE, TextureLoader};
-use crate::graphics::Texture;
-use crate::loaders::GameFileLoader;
-use crate::loaders::color::premultiply_alpha;
 use crate::loaders::error::LoadError;
+use crate::loaders::{GameFileLoader, premultiply_alpha};
 
 const MAX_CACHE_COUNT: u32 = 4096;
 const MAX_CACHE_SIZE: usize = 256 << 20;

@@ -1,0 +1,80 @@
+use wgpu::{
+    CompareFunction, DepthBiasState, DepthStencilState, Device, FragmentState, MultisampleState, PipelineCompilationOptions,
+    PipelineLayoutDescriptor, PrimitiveState, Queue, RenderPass, RenderPipeline, RenderPipelineDescriptor, StencilState, VertexState,
+};
+
+use crate::passes::{BindGroupCount, ColorAttachmentCount, DepthAttachmentCount, Drawer, PointShadowRenderPassContext, RenderPassContext};
+use crate::shader_compiler::ShaderCompiler;
+use crate::{Capabilities, GlobalContext, IndicatorInstruction, Texture};
+
+const DRAWER_NAME: &str = "point shadow indicator";
+
+pub(crate) struct PointShadowIndicatorDrawer {
+    pipeline: RenderPipeline,
+}
+
+impl Drawer<{ BindGroupCount::Two }, { ColorAttachmentCount::None }, { DepthAttachmentCount::One }> for PointShadowIndicatorDrawer {
+    type Context = PointShadowRenderPassContext;
+    type DrawData<'data> = Option<&'data IndicatorInstruction>;
+
+    fn new(
+        _capabilities: &Capabilities,
+        device: &Device,
+        _queue: &Queue,
+        shader_compiler: &ShaderCompiler,
+        _global_context: &GlobalContext,
+        render_pass_context: &Self::Context,
+    ) -> Self {
+        let shader_module = shader_compiler.create_shader_module("point_shadow", "indicator");
+
+        let bind_group_layout = Texture::bind_group_layout(device);
+
+        let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some(DRAWER_NAME),
+            bind_group_layouts: &[
+                Self::Context::bind_group_layout(device)[0],
+                Self::Context::bind_group_layout(device)[1],
+                bind_group_layout,
+            ],
+            push_constant_ranges: &[],
+        });
+
+        let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some(DRAWER_NAME),
+            layout: Some(&pipeline_layout),
+            vertex: VertexState {
+                module: &shader_module,
+                entry_point: Some("vs_main"),
+                compilation_options: PipelineCompilationOptions::default(),
+                buffers: &[],
+            },
+            fragment: Some(FragmentState {
+                module: &shader_module,
+                entry_point: Some("fs_main"),
+                compilation_options: PipelineCompilationOptions::default(),
+                targets: &[],
+            }),
+            multiview: None,
+            primitive: PrimitiveState::default(),
+            multisample: MultisampleState::default(),
+            depth_stencil: Some(DepthStencilState {
+                format: render_pass_context.depth_attachment_output_format()[0],
+                depth_write_enabled: true,
+                depth_compare: CompareFunction::Greater,
+                stencil: StencilState::default(),
+                bias: DepthBiasState::default(),
+            }),
+            cache: None,
+        });
+
+        Self { pipeline }
+    }
+
+    fn draw(&mut self, pass: &mut RenderPass<'_>, draw_data: Self::DrawData<'_>) {
+        if let Some(instruction) = draw_data {
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(2, instruction.texture.get_bind_group(), &[]);
+            pass.draw(0..6, 0..1);
+        }
+    }
+}

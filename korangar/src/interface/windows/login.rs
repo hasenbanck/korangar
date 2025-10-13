@@ -1,10 +1,11 @@
+use korangar_graphics::ShadowPadding;
 use korangar_interface::components::text_box::DefaultHandler;
 use korangar_interface::element::StateElement;
 use korangar_interface::element::id::FocusIdExt;
 use korangar_interface::window::{CustomWindow, Window};
 use rust_state::{Context, Path, RustState, Selector};
 
-use crate::graphics::{Color, ShadowPadding};
+use crate::Color;
 use crate::input::InputEvent;
 use crate::interface::windows::WindowClass;
 use crate::loaders::{ClientInfo, ClientInfoPathExt, OverflowBehavior, ServiceId};

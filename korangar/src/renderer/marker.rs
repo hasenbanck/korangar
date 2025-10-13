@@ -1,8 +1,8 @@
 use cgmath::Point3;
+use korangar_graphics::{MarkerIdentifier, MarkerInstruction};
 
-use crate::graphics::MarkerInstruction;
 use crate::renderer::MarkerRenderer;
-use crate::world::{Camera, MarkerIdentifier};
+use crate::world::Camera;
 
 #[derive(Default)]
 pub struct DebugMarkerRenderer {

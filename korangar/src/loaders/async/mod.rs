@@ -6,10 +6,10 @@ use hashbrown::HashMap;
 use korangar_debug::logging::print_debug;
 #[cfg(feature = "debug")]
 use korangar_debug::profiling::Profiler;
+use korangar_graphics::Texture;
 use ragnarok_packets::{EntityId, ItemId, TilePosition};
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
-use crate::graphics::Texture;
 use crate::init_tls_rand;
 use crate::loaders::error::LoadError;
 use crate::loaders::{ActionLoader, AnimationLoader, ImageType, MapLoader, ModelLoader, SpriteLoader, TextureLoader, VideoLoader};

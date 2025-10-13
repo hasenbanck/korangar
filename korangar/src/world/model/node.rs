@@ -1,10 +1,10 @@
 use cgmath::{Matrix, Matrix4, Point3, SquareMatrix, Transform as PointTransform, Vector4, VectorSpace};
+use korangar_graphics::ModelInstruction;
 use korangar_interface::element::StateElement;
 use ragnarok_formats::model::{RotationKeyframeData, ScaleKeyframeData, TranslationKeyframeData};
 use ragnarok_formats::version::InternalVersion;
 use rust_state::RustState;
 
-use crate::graphics::ModelInstruction;
 use crate::world::Camera;
 
 #[derive(RustState, StateElement)]

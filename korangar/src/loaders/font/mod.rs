@@ -19,6 +19,7 @@ use korangar_container::{Cacheable, SimpleCache};
 use korangar_debug::logging::Colorize;
 #[cfg(feature = "debug")]
 use korangar_debug::logging::print_debug;
+use korangar_graphics::{MAX_TEXTURE_SIZE, ScreenSize, Texture};
 use korangar_interface::application::TextLayouter;
 use korangar_interface::components::drop_down::DropDownItem;
 use korangar_interface::element::{ElementDisplay, StateElement};
@@ -27,7 +28,7 @@ use serde::{Deserialize, Serialize};
 
 use self::color_span_iterator::ColorSpanIterator;
 use super::{GameFileLoader, TextureLoader};
-use crate::graphics::{Color, MAX_TEXTURE_SIZE, ScreenSize, Texture};
+use crate::Color;
 use crate::loaders::font::font_file::FontFile;
 use crate::loaders::font::layout_key::{LayoutKey, LayoutKeyRef};
 use crate::loaders::rectangle::Rectangle;

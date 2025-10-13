@@ -1,6 +1,6 @@
 use korangar_interface::window::{CustomWindow, Window};
 
-use crate::graphics::Color;
+use crate::Color;
 use crate::state::localization::LocalizationPathExt;
 use crate::state::theme::InterfaceThemeType;
 use crate::state::{ClientState, ClientStatePathExt, client_state};

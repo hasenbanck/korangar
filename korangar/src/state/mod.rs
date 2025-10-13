@@ -6,6 +6,9 @@ pub mod theme;
 use std::cell::Cell;
 use std::sync::Arc;
 
+#[cfg(feature = "debug")]
+use korangar_graphics::RenderOptions;
+use korangar_graphics::{CornerDiameter, ScreenClip, ScreenPosition, ScreenSize, ShadowPadding};
 use korangar_interface::application::Application;
 use korangar_interface::components::button::ButtonTheme;
 use korangar_interface::components::collapsable::CollapsableTheme;
@@ -33,9 +36,6 @@ use self::cache_statistics::CacheStatistics;
 #[cfg(feature = "debug")]
 use crate::PacketHistory;
 use crate::character_slots::CharacterSlots;
-#[cfg(feature = "debug")]
-use crate::graphics::RenderOptions;
-use crate::graphics::{Color, CornerDiameter, ScreenClip, ScreenPosition, ScreenSize, ShadowPadding};
 use crate::input::{InputEvent, MouseInputMode};
 use crate::interface::windows::{ChatWindowState, DialogWindowState, FriendListWindowState, LoginWindowState, WindowCache, WindowClass};
 #[cfg(feature = "debug")]
@@ -48,7 +48,7 @@ use crate::state::theme::WorldTheme;
 #[cfg(feature = "debug")]
 use crate::world::Object;
 use crate::world::{Entity, Player, ResourceMetadata};
-use crate::{AudioSettings, GraphicsSettings};
+use crate::{AudioSettings, Color, GraphicsSettings};
 
 /// A message in the in-game chat.
 ///

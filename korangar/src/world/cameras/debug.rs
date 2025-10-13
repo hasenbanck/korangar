@@ -1,7 +1,7 @@
 use cgmath::{Deg, InnerSpace, Matrix4, Point3, Quaternion, Rad, Rotation, Rotation3, Vector2, Vector3, Zero};
+use korangar_graphics::perspective_reverse_lh;
 
 use super::Camera;
-use crate::graphics::perspective_reverse_lh;
 
 const LOOK_AROUND_SPEED: f32 = 0.005;
 const FLY_SPEED_FAST: f32 = 1000.0;

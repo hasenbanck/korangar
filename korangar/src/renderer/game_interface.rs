@@ -4,8 +4,11 @@ use std::sync::Arc;
 #[cfg(feature = "debug")]
 use cgmath::Point3;
 use cgmath::{EuclideanSpace, Vector2};
+#[cfg(feature = "debug")]
+use korangar_graphics::MarkerIdentifier;
+use korangar_graphics::{RectangleInstruction, ScreenClip, ScreenPosition, ScreenSize, Texture};
 
-use crate::graphics::{Color, RectangleInstruction, ScreenClip, ScreenPosition, ScreenSize, Texture};
+use crate::Color;
 use crate::loaders::{FontLoader, FontSize, GlyphInstruction, Scaling};
 #[cfg(feature = "debug")]
 use crate::loaders::{ImageType, TextureLoader};
@@ -14,8 +17,6 @@ use crate::renderer::MarkerRenderer;
 use crate::renderer::SpriteRenderer;
 #[cfg(feature = "debug")]
 use crate::world::Camera;
-#[cfg(feature = "debug")]
-use crate::world::MarkerIdentifier;
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
 #[allow(unused)]
@@ -84,7 +85,7 @@ impl SpriteRenderer for GameInterfaceRenderer {
         self.instructions.borrow_mut().push(RectangleInstruction::Sdf {
             screen_position,
             screen_size,
-            color,
+            color: color.into(),
             texture_position,
             texture_size,
             texture,
@@ -221,7 +222,7 @@ impl GameInterfaceRenderer {
                 instructions.push(RectangleInstruction::Text {
                     screen_position,
                     screen_size,
-                    color,
+                    color: color.into(),
                     texture_position,
                     texture_size,
                 });
@@ -250,7 +251,7 @@ impl GameInterfaceRenderer {
         self.instructions.borrow_mut().push(RectangleInstruction::Solid {
             screen_position,
             screen_size,
-            color,
+            color: color.into(),
         });
     }
 
@@ -283,7 +284,7 @@ impl GameInterfaceRenderer {
         self.instructions.borrow_mut().push(RectangleInstruction::Sprite {
             screen_position,
             screen_size,
-            color,
+            color: color.into(),
             texture_position,
             texture_size,
             linear_filtering: smooth,
@@ -320,7 +321,7 @@ impl MarkerRenderer for GameInterfaceRenderer {
             self.instructions.borrow_mut().push(RectangleInstruction::Sdf {
                 screen_position,
                 screen_size,
-                color,
+                color: color.into(),
                 texture_position: Vector2::new(0.0, 0.0),
                 texture_size: Vector2::new(1.0, 1.0),
                 texture: texture.clone(),

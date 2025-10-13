@@ -12,6 +12,7 @@ use korangar_container::CacheStatistics;
 use korangar_container::SimpleCache;
 #[cfg(feature = "debug")]
 use korangar_debug::logging::{Colorize, Timer, print_debug};
+use korangar_graphics::{BindlessSupport, Capabilities, Lanczos3Drawer, MipMapRenderPassContext, ShaderCompiler, Texture, TextureSet};
 use korangar_loaders::FileLoader;
 use wgpu::{
     Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, ComputePassDescriptor, Device, Extent3d, MapMode, PollError,
@@ -25,9 +26,7 @@ use super::{
     texture_file_dds_name,
 };
 use crate::SHUTDOWN_SIGNAL;
-use crate::graphics::{BindlessSupport, Capabilities, Lanczos3Drawer, MipMapRenderPassContext, ShaderCompiler, Texture, TextureSet};
-use crate::loaders::GameFileLoader;
-use crate::loaders::color::contains_transparent_pixel;
+use crate::loaders::{GameFileLoader, contains_transparent_pixel};
 use crate::world::Video;
 
 const MAX_CACHE_COUNT: u32 = 4096;

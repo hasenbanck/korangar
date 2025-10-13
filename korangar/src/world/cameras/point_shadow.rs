@@ -1,7 +1,7 @@
 use cgmath::{Deg, Matrix4, Point3, Vector2, Vector3, Zero};
+use korangar_graphics::perspective_reverse_lh;
 
 use super::Camera;
-use crate::graphics::perspective_reverse_lh;
 
 const VERTICAL_FOV: Deg<f32> = Deg(90.0);
 

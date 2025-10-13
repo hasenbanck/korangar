@@ -10,7 +10,7 @@ use korangar_networking::MessageColor;
 use rust_state::{Context, Path, RustState};
 
 use super::WindowClass;
-use crate::graphics::Color;
+use crate::Color;
 use crate::input::InputEvent;
 use crate::loaders::{FontSize, OverflowBehavior};
 use crate::state::localization::LocalizationPathExt;

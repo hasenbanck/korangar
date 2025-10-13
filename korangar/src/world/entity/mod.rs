@@ -6,6 +6,11 @@ use cgmath::{EuclideanSpace, Point3, Vector2, VectorSpace};
 use korangar_audio::{AudioEngine, SoundEffectKey};
 #[cfg(feature = "debug")]
 use korangar_debug::logging::Colorize;
+#[cfg(feature = "debug")]
+use korangar_graphics::{BindlessSupport, DebugRectangleInstruction, MarkerIdentifier, reduce_vertices};
+#[cfg(feature = "debug")]
+use korangar_graphics::{Buffer, ModelVertex};
+use korangar_graphics::{EntityInstruction, ScreenPosition, ScreenSize};
 use korangar_interface::element::StateElement;
 use korangar_interface::window::{StateWindow, Window};
 use korangar_networking::EntityData;
@@ -17,10 +22,7 @@ use smallvec::smallvec_inline;
 use wgpu::{BufferUsages, Device, Queue};
 
 #[cfg(feature = "debug")]
-use crate::graphics::reduce_vertices;
-#[cfg(feature = "debug")]
-use crate::graphics::{BindlessSupport, DebugRectangleInstruction};
-use crate::graphics::{EntityInstruction, ScreenPosition, ScreenSize};
+use crate::Color;
 use crate::loaders::GameFileLoader;
 #[cfg(feature = "debug")]
 use crate::loaders::{GAT_TILE_SIZE, split_mesh_by_texture};
@@ -29,12 +31,9 @@ use crate::renderer::GameInterfaceRenderer;
 use crate::renderer::MarkerRenderer;
 use crate::state::ClientState;
 use crate::state::theme::{InterfaceThemeType, WorldTheme};
+#[cfg(feature = "debug")]
+use crate::world::SubMesh;
 use crate::world::{ActionEvent, AnimationData, AnimationState, Camera, Library, MAX_WALK_PATH_SIZE, Map, PathFinder};
-#[cfg(feature = "debug")]
-use crate::world::{MarkerIdentifier, SubMesh};
-#[cfg(feature = "debug")]
-use crate::{Buffer, Color, ModelVertex};
-
 const MALE_HAIR_LOOKUP: &[usize] = &[2, 2, 1, 7, 5, 4, 3, 6, 8, 9, 10, 12, 11];
 const FEMALE_HAIR_LOOKUP: &[usize] = &[2, 2, 4, 7, 1, 5, 3, 6, 12, 10, 9, 11, 8];
 const SOUND_COOLDOWN_DURATION: u32 = 200;
@@ -714,7 +713,9 @@ impl Common {
 
     #[cfg(feature = "debug")]
     pub fn generate_pathing_mesh(&mut self, device: &Device, queue: &Queue, bindless_support: BindlessSupport, map: &Map) {
-        use crate::{Color, NativeModelVertex};
+        use korangar_graphics::NativeModelVertex;
+
+        use crate::Color;
 
         const PATHING_MESH_OFFSET: f32 = 0.95;
 
@@ -774,7 +775,7 @@ impl Common {
                     first_normal,
                     texture_coordinates[0],
                     texture_index,
-                    mesh_color,
+                    mesh_color.into(),
                     0.0,
                     smallvec_inline![0; 3],
                 ));
@@ -783,7 +784,7 @@ impl Common {
                     first_normal,
                     texture_coordinates[1],
                     texture_index,
-                    mesh_color,
+                    mesh_color.into(),
                     0.0,
                     smallvec_inline![0; 3],
                 ));
@@ -792,7 +793,7 @@ impl Common {
                     first_normal,
                     texture_coordinates[2],
                     texture_index,
-                    mesh_color,
+                    mesh_color.into(),
                     0.0,
                     smallvec_inline![0; 3],
                 ));
@@ -804,7 +805,7 @@ impl Common {
                     second_normal,
                     texture_coordinates[2],
                     texture_index,
-                    mesh_color,
+                    mesh_color.into(),
                     0.0,
                     smallvec_inline![0; 3],
                 ));
@@ -813,7 +814,7 @@ impl Common {
                     second_normal,
                     texture_coordinates[1],
                     texture_index,
-                    mesh_color,
+                    mesh_color.into(),
                     0.0,
                     smallvec_inline![0; 3],
                 ));
@@ -822,7 +823,7 @@ impl Common {
                     second_normal,
                     texture_coordinates[3],
                     texture_index,
-                    mesh_color,
+                    mesh_color.into(),
                     0.0,
                     smallvec_inline![0; 3],
                 ));
@@ -898,8 +899,8 @@ impl Common {
                 self.world_position,
                 &self.animation_state,
                 self.direction,
-                Color::rgb_u8(255, 0, 0),
-                Color::rgb_u8(0, 255, 0),
+                Color::rgb_u8(255, 0, 0).into(),
+                Color::rgb_u8(0, 255, 0).into(),
             );
         }
     }

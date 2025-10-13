@@ -1,0 +1,29 @@
+[package]
+name = "korangar-graphics"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bumpalo = { workspace = true, features = ["allocator_api"] }
+bytemuck = { workspace = true, features = ["derive", "extern_crate_std", "min_const_generics"] }
+cgmath = { workspace = true, features = ["mint", "serde"] }
+hashbrown = { workspace = true, features = ["serde"] }
+korangar-container = { workspace = true, features = ["interface"] }
+korangar-debug = { workspace = true, optional = true }
+korangar-interface = { workspace = true, features = ["serde", "cgmath", "theme-element"] }
+rayon = { workspace = true }
+rust-state = { workspace = true }
+serde = { workspace = true }
+sevenz-rust2 = { workspace = true, features = ["compress"] }
+smallvec = { workspace = true, features = ["const_generics", "const_new", "union"] }
+spin_sleep = { workspace = true }
+wgpu = { workspace = true, features = ["static-dxc", "spirv"] }
+winit = { workspace = true }
+
+[dev-dependencies]
+
+[build-dependencies]
+sevenz-rust2 = { workspace = true, features = ["compress"] }
+
+[features]
+debug = ["korangar-debug"]
