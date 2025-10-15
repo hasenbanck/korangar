@@ -298,7 +298,7 @@ impl InputSystem {
             events.push(InputEvent::ToggleProfilerWindow);
         }
 
-        #[cfg(feature = "debug")]
+        #[cfg(all(feature = "debug", not(feature = "offline")))]
         if control_down && self.get_key(KeyCode::KeyN).pressed() {
             events.push(InputEvent::TogglePacketInspectorWindow);
         }

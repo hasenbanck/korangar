@@ -33,6 +33,7 @@ korangar-graphics = { path = "korangar-graphics" }
 korangar-interface = { path = "korangar-interface" }
 korangar-loaders = { path = "korangar-loaders" }
 korangar-network-client = { path = "korangar-network-client" }
+korangar-offline = { path = "korangar-offline" }
 korangar-video = { path = "korangar-video" }
 libc = "0.2"
 lunify = "1"
@@ -117,6 +118,9 @@ opt-level = 3
 opt-level = 3
 
 [profile.dev.package.korangar-network-client]
+opt-level = 3
+
+[profile.dev.package.korangar-offline]
 opt-level = 3
 
 [profile.dev.package.korangar-video]

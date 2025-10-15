@@ -1865,6 +1865,7 @@ dependencies = [
  "korangar-interface",
  "korangar-loaders",
  "korangar-network-client",
+ "korangar-offline",
  "korangar-video",
  "lunify",
  "mlua",
@@ -2001,6 +2002,14 @@ dependencies = [
  "reqwest",
  "serde",
  "tokio",
+]
+
+[[package]]
+name = "korangar-offline"
+version = "0.1.0"
+dependencies = [
+ "korangar-gameplay",
+ "ragnarok-packets",
 ]
 
 [[package]]

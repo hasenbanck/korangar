@@ -27,6 +27,7 @@ korangar-graphics = { workspace = true }
 korangar-interface = { workspace = true, features = ["serde", "cgmath", "theme-element"] }
 korangar-loaders = { workspace = true }
 korangar-network-client = { workspace = true }
+korangar-offline = { workspace = true, optional = true }
 korangar-video = { workspace = true }
 lunify = { workspace = true }
 mlua = { workspace = true, features = ["lua51", "vendored"] }
@@ -57,3 +58,4 @@ debug = ["korangar-audio/debug", "korangar-graphics/debug", "korangar-debug", "k
 plain = ["korangar-debug/plain"]
 unicode = ["korangar-debug/unicode"]
 flac = ["korangar-audio/flac"]
+offline = ["korangar-offline"]

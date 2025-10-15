@@ -33,7 +33,7 @@ use theme::{InterfaceTheme, InterfaceThemePathExt, InterfaceThemeType};
 
 #[cfg(feature = "debug")]
 use self::cache_statistics::CacheStatistics;
-#[cfg(feature = "debug")]
+#[cfg(all(feature = "debug", not(feature = "offline")))]
 use crate::PacketHistory;
 use crate::character_slots::CharacterSlots;
 use crate::input::{InputEvent, MouseInputMode};
@@ -204,7 +204,7 @@ pub struct ClientState {
     /// List of packets sent and received for the packet inspector. Also
     /// contains information about which packets to display in the
     /// inspector.
-    #[cfg(feature = "debug")]
+    #[cfg(all(feature = "debug", not(feature = "offline")))]
     packet_history: PacketHistory,
     /// Statistics of all caches of the loaders.
     #[cfg(feature = "debug")]
@@ -215,7 +215,7 @@ impl ClientState {
     pub fn new(
         game_file_loader: &GameFileLoader,
         graphics_settings: GraphicsSettings,
-        #[cfg(feature = "debug")] packet_history: PacketHistory,
+        #[cfg(all(feature = "debug", not(feature = "offline")))] packet_history: PacketHistory,
     ) -> Self {
         time_phase!("load settings", {
             let mut login_settings = LoginSettings::new();
@@ -389,7 +389,7 @@ impl ClientState {
             profiler_window,
             #[cfg(feature = "debug")]
             theme_inspector_window,
-            #[cfg(feature = "debug")]
+            #[cfg(all(feature = "debug", not(feature = "offline")))]
             packet_history,
             #[cfg(feature = "debug")]
             cache_statistics,

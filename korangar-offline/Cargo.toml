@@ -1,0 +1,10 @@
+[package]
+name = "korangar-offline"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+korangar-gameplay = { workspace = true }
+ragnarok-packets = { workspace = true }
+
+[dev-dependencies]

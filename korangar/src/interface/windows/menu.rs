@@ -99,7 +99,7 @@ impl CustomWindow<ClientState> for MenuWindow {
                     foreground_color: client_theme().debug_button().foreground_color(),
                     hovered_background_color: client_theme().debug_button().hovered_background_color(),
                 },
-                #[cfg(feature = "debug")]
+                #[cfg(all(feature = "debug", not(feature = "offline")))]
                 button! {
                     text: "Packet inspector",
                     tooltip: "Inspect all incoming and outgoing packets (^000001only available in debug mode^000000)",

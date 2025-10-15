@@ -258,7 +258,7 @@ pub enum InputEvent {
     #[cfg(feature = "debug")]
     ToggleProfilerWindow,
     /// Open or close the packet inspector window.
-    #[cfg(feature = "debug")]
+    #[cfg(all(feature = "debug", not(feature = "offline")))]
     TogglePacketInspectorWindow,
     /// Open the cache statistics window.
     #[cfg(feature = "debug")]

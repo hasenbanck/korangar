@@ -25,7 +25,7 @@ mod login;
 #[cfg(feature = "debug")]
 mod maps;
 mod menu;
-#[cfg(feature = "debug")]
+#[cfg(all(feature = "debug", not(feature = "offline")))]
 mod packet_inspector;
 #[cfg(feature = "debug")]
 mod profiler;
@@ -69,7 +69,7 @@ pub use self::login::{LoginWindow, LoginWindowState};
 #[cfg(feature = "debug")]
 pub use self::maps::MapsWindow;
 pub use self::menu::MenuWindow;
-#[cfg(feature = "debug")]
+#[cfg(all(feature = "debug", not(feature = "offline")))]
 pub use self::packet_inspector::PacketInspectorWindow;
 #[cfg(feature = "debug")]
 pub use self::profiler::{ProfilerWindow, ProfilerWindowState};

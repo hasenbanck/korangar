@@ -35,7 +35,7 @@ mod state;
 mod interface;
 mod inventory;
 mod loaders;
-#[cfg(feature = "debug")]
+#[cfg(all(feature = "debug", not(feature = "offline")))]
 mod networking;
 mod renderer;
 mod settings;
@@ -75,9 +75,12 @@ use korangar_graphics::{
 };
 use korangar_interface::Interface;
 use korangar_interface::layout::MouseButton;
+#[cfg(not(feature = "offline"))]
 use korangar_network_client::NetworkGameplayProvider;
+#[cfg(feature = "offline")]
+use korangar_offline::OfflineSystem;
 use loaders::Color;
-#[cfg(feature = "debug")]
+#[cfg(all(feature = "debug", not(feature = "offline")))]
 use networking::PacketHistory;
 use ragnarok_packets::{
     BuyShopItemsResult, CharacterServerInformation, ClientTick, Direction, DisappearanceReason, EntityId, HotbarSlot, SellItemsResult,
@@ -673,17 +676,22 @@ impl Client {
         let saved_packet_version = FALLBACK_PACKET_VERSION;
 
         time_phase!("initialize gameplay provider", {
-            #[cfg(not(feature = "debug"))]
+            #[cfg(all(not(feature = "debug"), not(feature = "offline")))]
             let (networking_system, gameplay_event_buffer) = NetworkGameplayProvider::spawn();
-            #[cfg(not(feature = "debug"))]
+            #[cfg(all(not(feature = "debug"), not(feature = "offline")))]
             let gameplay_provider: Box<dyn GameplayProvider> = Box::new(networking_system);
 
-            #[cfg(feature = "debug")]
+            #[cfg(all(feature = "debug", not(feature = "offline")))]
             let (packet_history, packet_history_callback) = PacketHistory::new();
-            #[cfg(feature = "debug")]
+            #[cfg(all(feature = "debug", not(feature = "offline")))]
             let (networking_system, gameplay_event_buffer) = NetworkGameplayProvider::spawn_with_callback(packet_history_callback);
-            #[cfg(feature = "debug")]
+            #[cfg(all(feature = "debug", not(feature = "offline")))]
             let gameplay_provider: Box<dyn GameplayProvider> = Box::new(networking_system);
+
+            #[cfg(feature = "offline")]
+            let (offline_system, gameplay_event_buffer) = OfflineSystem::new();
+            #[cfg(feature = "offline")]
+            let gameplay_provider: Box<dyn GameplayProvider> = Box::new(offline_system);
         });
 
         time_phase!("create resources", {
@@ -749,7 +757,7 @@ impl Client {
             let client_state = Context::new(ClientState::new(
                 &game_file_loader,
                 graphics_settings.clone(),
-                #[cfg(feature = "debug")]
+                #[cfg(all(feature = "debug", not(feature = "offline")))]
                 packet_history,
             ));
         });
@@ -962,7 +970,7 @@ impl Client {
         #[cfg(feature = "debug")]
         loads_measurement.stop();
 
-        #[cfg(feature = "debug")]
+        #[cfg(all(feature = "debug", not(feature = "offline")))]
         {
             profile_block!("update packet history callback");
 
@@ -3179,7 +3187,7 @@ impl Client {
                     true => self.interface.close_window_with_class(WindowClass::Profiler),
                     false => self.interface.open_window(ProfilerWindow::new(client_state().profiler_window())),
                 },
-                #[cfg(feature = "debug")]
+                #[cfg(all(feature = "debug", not(feature = "offline")))]
                 InputEvent::TogglePacketInspectorWindow => match self.interface.is_window_with_class_open(WindowClass::PacketInspector) {
                     true => self.interface.close_window_with_class(WindowClass::PacketInspector),
                     false => self

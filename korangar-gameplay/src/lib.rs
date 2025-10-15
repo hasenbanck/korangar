@@ -36,6 +36,7 @@ impl GameplayEventBuffer {
     }
 
     pub fn push(&mut self, event: GameplayEvent) {
+        println!("{event:?}");
         self.0.push(event);
     }
 }
