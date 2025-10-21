@@ -1,3 +1,7 @@
+//! Audio frame representation.
+//!
+//! This module provides the `Frame` type for stereo audio samples.
+
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
 use bytemuck::{Pod, Zeroable};
@@ -5,33 +9,33 @@ use bytemuck::{Pod, Zeroable};
 /// A stereo audio sample.
 #[derive(Copy, Clone, PartialEq, Default, Pod, Zeroable)]
 #[repr(C)]
-pub(crate) struct Frame {
+pub struct Frame {
     /// The sample for the left channel.
-    pub(crate) left: f32,
+    pub left: f32,
     /// The sample for the right channel.
-    pub(crate) right: f32,
+    pub right: f32,
 }
 
 impl Frame {
     /// A [`Frame`] with both the left and right samples set to `0.0`.
-    pub(crate) const ZERO: Frame = Frame { left: 0.0, right: 0.0 };
+    pub const ZERO: Frame = Frame { left: 0.0, right: 0.0 };
 
     /// Creates a frame with the given left and right values.
     #[must_use]
-    pub(crate) fn new(left: f32, right: f32) -> Self {
+    pub fn new(left: f32, right: f32) -> Self {
         Self { left, right }
     }
 
     /// Creates a frame with both the left and right channels set to the same
     /// value.
     #[must_use]
-    pub(crate) fn from_mono(value: f32) -> Self {
+    pub fn from_mono(value: f32) -> Self {
         Self::new(value, value)
     }
 
     /// Returns the frame mixed down to mono.
     #[must_use]
-    pub(crate) fn as_mono(self) -> Self {
+    pub fn as_mono(self) -> Self {
         Self::from_mono((self.left + self.right) / 2.0)
     }
 }

@@ -1,3 +1,7 @@
+//! Audio resampling using FFT-based algorithms.
+//!
+//! This module provides the `Resampler` type for converting audio between different sample rates.
+
 mod fft;
 
 use std::sync::Arc;
@@ -12,7 +16,7 @@ use crate::frame::Frame;
 ///
 /// Since we're on the audio thread and control the calling pattern, we don't
 /// need complex ring buffer logic - just simple chunked processing.
-pub(crate) struct Resampler {
+pub struct Resampler {
     resampler: Fft<2, f32>,
     input_buffer: Vec<Frame>,
     input_length: usize,
@@ -29,7 +33,7 @@ impl Resampler {
     /// # Parameters
     /// - `input_rate`: Sample rate of the input audio (e.g., 44100)
     /// - `output_rate`: Sample rate of the output audio (e.g., 48000)
-    pub(crate) fn new(input_rate: u32, output_rate: u32) -> Self {
+    pub fn new(input_rate: u32, output_rate: u32) -> Self {
         let resampler = Fft::<2, f32>::new(input_rate as usize, output_rate as usize, 1024).expect("failed to create rubato FFT resampler");
 
         let chunk_size_in = resampler.input_frames_next();
@@ -131,7 +135,7 @@ impl Resampler {
     ///
     /// # Returns
     /// A new buffer containing the resampled frames.
-    pub(crate) fn resample_batch(&mut self, frames: &[Frame]) -> Arc<[Frame]> {
+    pub fn resample_batch(&mut self, frames: &[Frame]) -> Arc<[Frame]> {
         let source_rate = self.resampler.input_frames_max();
         let target_rate = self.resampler.output_frames_max();
 

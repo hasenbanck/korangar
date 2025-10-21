@@ -9,12 +9,12 @@ pub(crate) mod backend;
 pub(crate) mod command;
 mod decibels;
 mod error;
-mod frame;
+pub mod frame;
 pub(crate) mod listener;
 mod manager;
 mod parameter;
 mod playback_state_manager;
-mod resampler;
+pub mod resampler;
 pub(crate) mod sound;
 pub(crate) mod track;
 mod tween;
@@ -42,12 +42,15 @@ use rayon::spawn;
 
 use crate::backend::cpal::CpalBackend;
 use crate::decibels::Decibels;
-use crate::frame::Frame;
 use crate::manager::{AudioManager, AudioManagerSettings};
 use crate::sound::PlaybackState;
 use crate::sound::static_sound::{StaticSoundData, StaticSoundHandle};
 use crate::sound::streaming::{StreamingSoundData, StreamingSoundHandle};
 use crate::track::{SpatialTrackBuilder, SpatialTrackDistances, SpatialTrackHandle, TrackBuilder, TrackHandle};
+
+// Re-export for public API
+pub use crate::frame::Frame;
+pub use crate::resampler::Resampler;
 
 create_generational_key!(SoundEffectKey, "The key for a cached sound effect");
 create_simple_key!(AmbientKey, "The key for a ambient sound");

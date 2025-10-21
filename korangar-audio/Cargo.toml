@@ -17,6 +17,9 @@ rtrb = { workspace = true }
 symphonia = { workspace = true, default-features = false, features = ["mp3", "pcm", "wav"] }
 send_wrapper = { workspace = true, optional = true }
 
+[dependencies.hound]
+version = "3.5"
+
 [dev-dependencies]
 approx = "0.5"
 
@@ -29,6 +32,10 @@ features = ["wasm-bindgen"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.send_wrapper]
 workspace = true
+
+[[bin]]
+name = "resampler"
+path = "src/bin/resampler.rs"
 
 [features]
 debug = ["korangar-debug"]
