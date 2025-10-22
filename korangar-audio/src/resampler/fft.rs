@@ -15,6 +15,7 @@
 
 mod error;
 mod sample;
+mod simple;
 mod sinc;
 mod windows;
 
